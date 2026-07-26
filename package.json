@@ -14,6 +14,7 @@
     "@nx/vite": "^23.1.0",
     "@nx/vitest": "23.1.0",
     "@nx/web": "23.1.0",
+    "@nx/workspace": "23.1.0",
     "@playwright/test": "^1.37.0",
     "@swc/cli": "~0.8.1",
     "@swc/core": "~1.15.5",

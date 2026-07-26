@@ -1,0 +1,86 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release Version (Example: v1.3.5)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com
+
+jobs:
+  release:
+    name: Build & Push Docker Images
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        service:
+          - api-gateway
+          - user-service
+          - payment-service
+          - wallet-service
+          - transaction-service
+          - notification-service
+          - fraud-service
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Validate Version
+        run: |
+          VERSION="${{ inputs.version }}"
+
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Invalid version."
+            echo "::error::Expected: v1.3.5"
+            exit 1
+          fi
+
+      - name: Generate Release Metadata
+        run: |
+          VERSION=${{ inputs.version }}
+          COMMIT=$(git rev-parse --short HEAD)
+
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "COMMIT=$COMMIT" >> $GITHUB_ENV
+          echo "IMAGE_TAG=${VERSION}-${COMMIT}" >> $GITHUB_ENV
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Configure AWS Credentials
+        # aws-actions/configure-aws-credentials
+
+      - name: Login to Amazon ECR
+        # aws-actions/amazon-ecr-login
+
+      - name: Build Docker Image
+        run: |
+          docker build \
+          -f services/${{ matrix.service }}/Dockerfile \
+          -t $ECR_REGISTRY/${{ matrix.service }}:${IMAGE_TAG} .
+
+      - name: Push Docker Image
+        run: |
+          docker push \
+          $ECR_REGISTRY/${{ matrix.service }}:${IMAGE_TAG}

@@ -1,200 +1,208 @@
+# FinTech Platform
 
-# Before initializing Nx, create a `libs/shared` directory (or similar) to hold reusable code.
+A production-style **FinTech Microservices Platform** organized as an **Nx Monorepo**.
 
-Store common libraries that will be shared across multiple services, for example:
+This project demonstrates how to migrate an existing Node.js microservices architecture into an Nx workspace while preserving each service as an independent application.
 
-- Middleware: `auth.js`, `errorHandler.js`, `rateLimiter.js`
-- Utilities: `logger.js`, `constants.js`, `helpers.js`
-- Services/Clients: `kafka.js`, `redis.js`, `email.js`
+The repository showcases modern engineering practices including:
 
-This avoids code duplication. Any changes made to a shared library are automatically available to all services that depend on it.
-- For example:
+- 🚀 Nx Monorepo
+- ⚡ Incremental builds
+- 📦 Shared libraries
+- 🔍 Dependency graph visualization
+- 🧪 Centralized testing
+- ☁️ Nx Cloud remote caching
+- 🔄 CI/CD automation
+- 🐳 Docker-ready services
+
+---
+
+## Architecture
+
+```
+                  +--------------------+
+                  |    API Gateway     |
+                  +---------+----------+
+                            |
+     -----------------------------------------------------
+     |          |            |            |              |
+ User      Payment     Transaction   Notification    Fraud
+Service      Service      Service       Service      Service
+
+                Shared Libraries (libs/)
+      ---------------------------------------------
+      Auth | Logger | Kafka | Config | Shared Types
+```
+
+---
+
+## Project Structure
+
+```text
+services/
+├── api-gateway
+├── payment-service
+├── transaction-service
+├── notification-service
+├── fraud-service
+├── user-service
+├── wallet-service
+└── mock-service
 
 libs/
 ├── auth
-├── logger
 ├── config
 ├── kafka
+├── logger
 └── shared-types
+```
 
-apps/
-├── user-service
-├── payment-service
-├── transaction-service
-└── notification-service
-This is a common structure in Nx monorepos because it minimizes code duplication while keeping each microservice focused on its own business logic.
+---
 
-## In summary
-Nx's biggest strength isn't just that it stores everything in one repository. It's that it understands the relationships between your applications and libraries.
+## Why Nx?
 
-**That enables features like**
+Nx understands the relationships between applications and libraries.
 
-- Code sharing through reusable libraries.
-- Dependency tracking so Nx knows what depends on what.
-- Affected commands that rebuild and retest only what's impacted.
-- Consistent implementations across services.
-- Faster CI/CD by avoiding unnecessary work.
-- Simpler maintenance because you update shared code in one place instead of many.
+That enables:
 
-So the libs/ folder isn't an Nx requirement—it's a design pattern that lets you get the most value from Nx's dependency analysis and build optimization
+- Shared reusable code
+- Dependency-aware builds
+- Incremental testing
+- Faster CI/CD
+- Project graph visualization
+- Better maintainability
 
+---
 
-# Initializing Nx in a project
-**command:"pnpm dlx nx@latest init"**
+## Technology Stack
 
-## make sure all NX package are same version
- **pnpm nx report**
+| Technology | Purpose |
+|------------|---------|
+| Node.js | Backend services |
+| Express | REST APIs |
+| React | Frontend |
+| Nx | Monorepo management |
+| Vite | Frontend bundler |
+| Vitest | Unit testing |
+| Playwright | End-to-end testing |
+| ESLint | Code quality |
+| Docker | Containerization |
+| Nx Cloud | Remote caching |
 
-### Install Nx plugins for your project
-**Base (core/framework) plugins**
- - express
- - node
- - js :Plain JavaScript/TypeScript libraries
- - React
-**Testing plugins**
- - vitest → Unit testing with Vitest
- - playwright → End-to-end (E2E) browser testing
- - Eslint- Code Quality
- - vite - Build and serve apps
- **command**
-1. **Align plugin versions with Nx core**
-   Upgrade all official plugins to match Nx 23:
-   ```bash
-2  **pnpm add -D @nx/react@23 @nx/vite@23 @nx/node@23 @nx/js@23 @nx/d@23 -w**
-   **pnpm up -D @nx/* -w**
+---
 
+## Getting Started
 
-### genrating project graph
-**COMMAND:pnpm nx graph**
- - **pnpm nx reset** 
- - **pnpm nx list**
- - **NX_DAEMON=false pnpm nx graph --verbose**
+Clone the repository
 
+```bash
+git clone <repository-url>
 
-#### creates a React application in an Nx workspace.
-link an e2e  with its webapp through implicit dependencies
-**Command**
- pnpm nx generate @nx/react:application web \
-  --projectName=web \
-  --directory=services/web \
-  --bundler=vite \
-  --e2eTestRunner=playwright \
-  --style=css \
-  --routing=true
+cd fintech-platform
+```
 
-##### create node application in an NX work space and tool to packge them
-this create standalone project.json file in each services, Nx point to that file and execute the test tools set for  the  application
-in NX 23.1 version, no standalone project.json get createed  instead all test tools appear in nx.json in the root folder ,doing testing Nx pick tools from there
+Install dependencies
 
- **pnpm nx g @nx/node:application payment-service \--directory=services/payment-service**
- **pnpm nx g @nx/node:application notification-service \--directory=services/notification-service**
-# [beause this is an establish project i dont need Nx to build from scrash]: so this stage will be skiped or ignored.
+```bash
+pnpm install
+```
 
-Since you already have the microservices, do not generate them again. We'll register each one with Nx.
+View all registered projects
 
-We'll start with one service (payment-service). Once it works, you'll repeat the same process for the others.
+```bash
+pnpm nx show projects
+```
 
-### Creating project.json accross services
- # payment-service:
-  -  cd fintech-platform/services/payment-service$ touch project.json
-  - Initially put only the project name:
-     {
-        "name": "payment-service"
-     }
+Generate the dependency graph
 
-  - Now run: 
-    pnpm nx show projects
+```bash
+pnpm nx graph
+```
 
+---
 
+## Common Nx Commands
 
+Serve a service
 
-  - {
-  "$schema": "../../node_modules/nx/schemas/project-schema.json",
-  "name": "payment-service",
-  "projectType": "application",
-  "sourceRoot": "services/payment-service/src",
-  "targets": {}
-   } 
+```bash
+pnpm nx serve payment-service
+```
 
- - pnpm nx show project payment-service
- - pnpm nx start payment-service
- - pnpm nx serve payment-service → starts your Express server.
- - pnpm nx lint payment-service → runs ESLint.
- - pnpm nx test payment-service → runs Jest.
- - pnpm nx build payment-service → runs your build command.
+Build
 
- # Api-gateway
+```bash
+pnpm nx build payment-service
+```
 
- # fraud-service
+Lint
 
- # mock-service
+```bash
+pnpm nx lint payment-service
+```
 
- # notification-service
+Test
 
- # transaction-service
+```bash
+pnpm nx test payment-service
+```
 
- # user-service
+---
 
- # walle-service
+## Nx Cloud
 
- ==========================
- ### ERROR HANDLING :[plugin versions confliting]
- --------------------pnpm nx g @nx/node:application payment-service \
-  --directory=services/payment-service
+This project supports **Nx Cloud** for:
 
- NX  Generating @nx/node:application
+- Remote caching
+- Faster CI
+- Distributed task execution
 
-✔ Which framework do you want to use? · express
-✔ What should be the project name and where should it be generated? · payment-service @ services/payment-service
-Fetching prettier...
+Connect your workspace
 
- NX   Cannot read properties of undefined (reading 'filter')
+```bash
+pnpm nx connect
+```
 
-Pass --verbose to see the stacktrace.
-------
-## SOLUTION
-------------------------
+---
 
-**pnpm nx report**
-**pnpm remove @nrwl/express @nrwl/js @nrwl/react**
-**pnpm add -Dw \@nx/node@23.1.0 \@nx/express@23.1.0 \@nx/jest@23.1.0 \@nx/linter@23.1.0**
-**pnpm list @nx/node @nx/express @nx/jest @nx/devkit**[to verify whether the upgrade actually happened]
-**pnpm install**
+## Continuous Integration
 
-**OR**
-- rm -rf node_modules
-- rm pnpm-lock.yaml
-- pnpm install
-- pnpm nx reset
-- pnpm nx report
-- pnpm list nx @nx/devkit @nx/node @nx/jest @nx/js
-- pnpm nx g @nx/node:application payment-service \ --directory=services/payment-service
+Generate an Nx CI workflow
 
+```bash
+pnpm nx g ci-workflow
+```
 
-The problem
-Your workspace has mixed Nx versions.pnpm list @nx/node @nx/express @nx/jest @nx/devkit
-You have:
-nx                  23.1.0   ✅
-@nx/react           23.1.0   ✅
-@nx/vite            23.1.0   ✅
-@nx/playwright      23.1.0   ✅
+---
 
-but also:
-@nx/node            19.8.4   ❌
-@nx/express         19.8.4   ❌
-@nx/jest            19.8.4   ❌
-@nx/linter          19.8.4   ❌
+## Documentation
 
-T
------------------------------------------
-## Connecting Workspace to Nx Cloud
--------------------------------------------
-to benefit from alot of features such as caching and Ci they usually the pain point come in
-Nx come with a commersial addon which is a products ,Nx cloud 
+Detailed documentation is available in the **docs** folder.
 
-- we can use Nx cloud to set up Ci for remote caching
-- we can use it to distribute task paralyze them for mush faster which is called NX agents
+- **docs/NX_SETUP.md** — Complete Nx setup guide
+- **docs/TROUBLESHOOTING.md** — Common issues and fixes
+- **docs/ARCHITECTURE.md** — Architecture overview
 
-**Commands**
-- pnpm nx  connect [run from local repo after been push to github]
-- 
+---
+
+## Skills Demonstrated
+
+- Nx Monorepo
+- Node.js Microservices
+- Express
+- React
+- Dependency Graph Analysis
+- Incremental Builds
+- Shared Libraries
+- Docker
+- GitHub Actions
+- Nx Cloud
+- Playwright
+- Vitest
+- ESLint
+
+---
+
+## License
+
+MIT

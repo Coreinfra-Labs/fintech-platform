@@ -1,0 +1,52 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target Environment
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+
+      image_tag:
+        description: Docker Image Tag (Example: v1.3.5-48e21da)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    environment:
+      name: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        # aws-actions/configure-aws-credentials
+
+      - name: Configure kubectl
+        # aws eks update-kubeconfig
+
+      - name: Deploy with Helm
+        run: |
+          helm upgrade fintech ./helm \
+            --install \
+            --namespace ${{ inputs.environment }} \
+            --set image.tag=${{ inputs.image_tag }}
+
+      - name: Verify Deployment
+        run: |
+          kubectl get pods -n ${{ inputs.environment }}
