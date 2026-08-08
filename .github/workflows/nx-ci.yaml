@@ -1,0 +1,138 @@
+name: CI
+
+on:
+  pull_request:
+
+  push:
+    branches:
+      - develop
+      - main
+
+  workflow_dispatch:
+    inputs:
+      full_ci:
+        description: "Run CI for all Nx projects"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  main:
+    name: Nx CI
+    runs-on: ubuntu-latest
+
+    steps:
+      # ============================================
+      # CHECKOUT
+      # ============================================
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          filter: tree:0
+          fetch-depth: 0
+
+      # ============================================
+      # PNPM
+      # ============================================
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.8.0
+          run_install: false
+
+      # ============================================
+      # NODE
+      # ============================================
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      # ============================================
+      # INSTALL
+      # ============================================
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # ============================================
+      # PLAYWRIGHT
+      # ============================================
+
+      - name: Install Playwright
+        run: pnpm exec playwright install --with-deps
+
+      # ============================================
+      # NX SHAS
+      # ============================================
+
+      - name: Set Nx SHAs
+        uses: nrwl/nx-set-shas@v5
+
+      # ============================================
+      # NX CLOUD
+      # ============================================
+
+      - name: Start Nx Cloud CI
+        run: |
+          pnpm dlx nx start-ci-run \
+            --distribute-on=".nx/workflows/distribution-config.yaml" \
+            --stop-agents-after="e2e"
+
+      # ============================================
+      # FULL CI
+      # ============================================
+
+      - name: Run full monorepo CI
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          pnpm nx run-many \
+            -t lint,test-ci,typecheck,build \
+            --all
+
+      # ============================================
+      # FULL E2E
+      # ============================================
+
+      - name: Run all E2E tests
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          pnpm nx run-many \
+            -t e2e \
+            --all
+
+      # ============================================
+      # AFFECTED CI
+      # ============================================
+
+      - name: Run affected CI
+        if: github.event_name != 'workflow_dispatch'
+        run: |
+          pnpm nx affected \
+            -t lint,test-ci,typecheck,build
+
+      # ============================================
+      # AFFECTED E2E
+      # ============================================
+
+      - name: Run affected E2E
+        if: github.event_name != 'workflow_dispatch'
+        run: |
+          pnpm nx affected \
+            -t e2e
+
+      # ============================================
+      # NX FIX CI
+      # ============================================
+
+      - name: Nx fix CI
+        if: always()
+        run: pnpm exec nx fix-ci

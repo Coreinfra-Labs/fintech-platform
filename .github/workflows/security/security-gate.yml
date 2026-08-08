@@ -1,0 +1,49 @@
+jobs:
+
+  nx-ci:
+    ...
+
+  sonar:
+    ...
+
+  gitleaks:
+    ...
+
+  sca-trivy:
+    ...
+
+    ...
+
+  security-gate:
+    name: Security Gate
+    needs:
+      - nx-ci
+      - sonar
+      - gitleaks
+      - sca-trivy
+
+    if: always()
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Evaluate security gate
+        run: |
+          echo "Nx CI: ${{ needs.nx-ci.result }}"
+          echo "SonarQube: ${{ needs.sonar.result }}"
+          echo "Gitleaks: ${{ needs.gitleaks.result }}"
+          echo "Trivy: ${{ needs.trivy.result }}"
+          echo "IaC Security: ${{ needs.iac-security.result }}"
+
+          if [[ \
+            "${{ needs.nx-ci.result }}" != "success" || \
+            "${{ needs.sonar.result }}" != "success" || \
+            "${{ needs.gitleaks.result }}" != "success" || \
+            "${{ needs.trivy.result }}" != "success" || \
+            "${{ needs.iac-security.result }}" != "success" \
+          ]]; then
+            echo "Security Gate FAILED"
+            exit 1
+          fi
+
+          echo "Security Gate PASSED"

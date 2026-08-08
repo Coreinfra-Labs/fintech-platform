@@ -1,0 +1,161 @@
+name: Security - Notification
+
+on:
+
+  # ==========================================================
+  # LISTEN FOR SECURITY SCHEDULED WORKFLOW
+  #
+  # This workflow does NOT run on every PR or push.
+  #
+  # It only reacts when security-scheduled.yml completes.
+  # ==========================================================
+
+  workflow_run:
+    workflows:
+      - "Security - Scheduled"
+
+    types:
+      - completed
+
+
+permissions:
+  actions: read
+  contents: read
+
+
+jobs:
+
+  # ==========================================================
+  # SECURITY FAILURE NOTIFICATION
+  #
+  # Only run when the scheduled security workflow fails.
+  #
+  # Successful security scans generate NO Slack alert.
+  # ==========================================================
+
+  notify-security-team:
+
+    name: 🚨 Notify Security Team
+
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ======================================================
+      # SECURITY FAILURE INFORMATION
+      # ======================================================
+
+      - name: Prepare security alert
+        id: security-alert
+        env:
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          WORKFLOW_ID: ${{ github.event.workflow_run.id }}
+          WORKFLOW_URL: ${{ github.event.workflow_run.html_url }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          COMMIT_SHA: ${{ github.event.workflow_run.head_sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+
+          echo "=========================================="
+          echo "       SECURITY ALERT"
+          echo "=========================================="
+
+          echo "Workflow    : ${WORKFLOW_NAME}"
+          echo "Repository  : ${REPOSITORY}"
+          echo "Branch      : ${BRANCH}"
+          echo "Commit      : ${COMMIT_SHA}"
+          echo "Workflow URL: ${WORKFLOW_URL}"
+
+      # ======================================================
+      # SEND SLACK ALERT
+      #
+      # Add your Slack Incoming Webhook URL as:
+      #
+      # SECURITY_SLACK_WEBHOOK_URL
+      #
+      # GitHub:
+      #
+      # Settings
+      #   → Secrets and variables
+      #     → Actions
+      #       → New repository secret
+      #
+      # ======================================================
+
+      - name: Send Slack security alert
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SECURITY_SLACK_WEBHOOK_URL }}
+
+          REPOSITORY: ${{ github.repository }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          COMMIT_SHA: ${{ github.event.workflow_run.head_sha }}
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          WORKFLOW_URL: ${{ github.event.workflow_run.html_url }}
+
+        run: |
+
+          curl -X POST \
+            -H "Content-Type: application/json" \
+            --data "{
+              \"text\": \"🚨 SECURITY ALERT - Scheduled Security Scan Failed\",
+              \"blocks\": [
+                {
+                  \"type\": \"header\",
+                  \"text\": {
+                    \"type\": \"plain_text\",
+                    \"text\": \"🚨 Security Scan Failed\"
+                  }
+                },
+                {
+                  \"type\": \"section\",
+                  \"fields\": [
+                    {
+                      \"type\": \"mrkdwn\",
+                      \"text\": \"*Repository:*\\n${REPOSITORY}\"
+                    },
+                    {
+                      \"type\": \"mrkdwn\",
+                      \"text\": \"*Branch:*\\n${BRANCH}\"
+                    },
+                    {
+                      \"type\": \"mrkdwn\",
+                      \"text\": \"*Workflow:*\\n${WORKFLOW_NAME}\"
+                    },
+                    {
+                      \"type\": \"mrkdwn\",
+                      \"text\": \"*Status:*\\n❌ FAILED\"
+                    }
+                  ]
+                },
+                {
+                  \"type\": \"section\",
+                  \"text\": {
+                    \"type\": \"mrkdwn\",
+                    \"text\": \"The scheduled security pipeline detected one or more security failures. Please investigate the dependency vulnerabilities immediately.\"
+                  }
+                },
+                {
+                  \"type\": \"section\",
+                  \"text\": {
+                    \"type\": \"mrkdwn\",
+                    \"text\": \"*Commit:*\\n${COMMIT_SHA}\"
+                  }
+                },
+                {
+                  \"type\": \"actions\",
+                  \"elements\": [
+                    {
+                      \"type\": \"button\",
+                      \"text\": {
+                        \"type\": \"plain_text\",
+                        \"text\": \"View Security Scan\"
+                      },
+                      \"url\": \"${WORKFLOW_URL}\"
+                    }
+                  ]
+                }
+              ]
+            }" \
+            "$SLACK_WEBHOOK_URL"

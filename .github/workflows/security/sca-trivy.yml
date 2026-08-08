@@ -1,0 +1,76 @@
+name: Security - SCA
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+
+  push:
+    branches:
+      - develop
+      - main
+
+  workflow_dispatch:
+
+  schedule:
+    - cron: "0 2 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  trivy-sca:
+    name: Trivy Dependency Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Cache Trivy
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/trivy
+          key: trivy-${{ runner.os }}
+          restore-keys: |
+            trivy-
+
+      - name: Trivy Filesystem Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          format: table
+          exit-code: 1
+
+  pnpm-audit:
+    name: pnpm Dependency Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.8.0
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: pnpm audit
+        run: pnpm audit --audit-level=high

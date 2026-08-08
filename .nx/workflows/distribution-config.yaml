@@ -1,0 +1,122 @@
+# .nx/workflows/distribution-config.yaml
+
+# ============================================================
+# NX CLOUD DYNAMIC DISTRIBUTION
+# ============================================================
+#
+# Nx Cloud selects the appropriate changeset based on the
+# percentage of affected projects.
+#
+# Changesets MUST be ordered from smallest to largest.
+#
+# ============================================================
+
+distribute-on:
+
+  # ----------------------------------------------------------
+  # SMALLER CHANGESET
+  # Approx. 1-25% affected projects
+  # ----------------------------------------------------------
+  smaller-changeset:
+    2 linux-small-js
+    1 linux-medium-js
+    1 linux-large-js
+
+  # ----------------------------------------------------------
+  # MEDIUM CHANGESET
+  # Approx. 26-50% affected projects
+  # ----------------------------------------------------------
+  medium-changeset:
+    2 linux-small-js
+    2 linux-medium-js
+    2 linux-large-js
+
+  # ----------------------------------------------------------
+  # LARGE CHANGESET
+  # Approx. 51-75% affected projects
+  # ----------------------------------------------------------
+  large-changeset:
+    2 linux-small-js
+    3 linux-medium-js
+    3 linux-large-js
+
+  # ----------------------------------------------------------
+  # EXTRA-LARGE CHANGESET
+  # Approx. 76-100% affected projects
+  # ----------------------------------------------------------
+  #
+  # Instead of linux-extra-large-js, we scale out the
+  # supported linux-large-js agents.
+  #
+  extra-large-changeset:
+    2 linux-small-js
+    4 linux-medium-js
+    6 linux-large-js
+
+
+# ============================================================
+# ASSIGNMENT RULES
+# ============================================================
+
+assignment-rules:
+
+  # ----------------------------------------------------------
+  # LINT
+  # ----------------------------------------------------------
+  #
+  # Cheap CPU workload.
+  #
+  - targets:
+      - lint
+    run-on:
+      - agent: linux-small-js
+        parallelism: 4
+
+  # ----------------------------------------------------------
+  # TEST
+  # ----------------------------------------------------------
+  #
+  # Unit/integration tests.
+  #
+  - targets:
+      - test
+    run-on:
+      - agent: linux-medium-js
+        parallelism: 4
+
+  # ----------------------------------------------------------
+  # TYPECHECK
+  # ----------------------------------------------------------
+  #
+  # TypeScript type checking.
+  #
+  - targets:
+      - typecheck
+    run-on:
+      - agent: linux-medium-js
+        parallelism: 4
+
+  # ----------------------------------------------------------
+  # BUILD
+  # ----------------------------------------------------------
+  #
+  # Builds are more CPU/memory intensive.
+  #
+  - targets:
+      - build
+    run-on:
+      - agent: linux-large-js
+        parallelism: 2
+
+  # ----------------------------------------------------------
+  # E2E
+  # ----------------------------------------------------------
+  #
+  # Playwright/browser workloads should run on large agents.
+  #
+  - targets:
+      - e2e
+      - e2e-ci*
+    run-on:
+      - agent: linux-large-js
+        parallelism: 3
