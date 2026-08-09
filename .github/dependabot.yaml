@@ -1,0 +1,121 @@
+version: 2
+
+updates:
+
+  # ==========================================================
+  # NPM / PNPM DEPENDENCIES
+  # ==========================================================
+
+  - package-ecosystem: "npm"
+    directory: "/"
+
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "02:00"
+      timezone: "Africa/Lagos"
+
+    open-pull-requests-limit: 10
+
+    labels:
+      - "security:automated"
+      - "scanner:sca"
+      - "type:dependency"
+
+    commit-message:
+      prefix: "deps"
+
+    reviewers:
+      - "Coreinfra-Labs/security"
+
+    # --------------------------------------------------------
+    # NX
+    # --------------------------------------------------------
+
+    groups:
+      nx:
+        patterns:
+          - "@nx/*"
+          - "nx"
+
+      # ------------------------------------------------------
+      # ANGULAR
+      # ------------------------------------------------------
+
+      angular:
+        patterns:
+          - "@angular/*"
+
+      # ------------------------------------------------------
+      # REACT
+      # ------------------------------------------------------
+
+      react:
+        patterns:
+          - "react"
+          - "react-*"
+          - "@types/react*"
+
+      # ------------------------------------------------------
+      # TYPESCRIPT
+      # ------------------------------------------------------
+
+      typescript:
+        patterns:
+          - "typescript"
+          - "@types/node"
+
+      # ------------------------------------------------------
+      # TESTING
+      # ------------------------------------------------------
+
+      testing:
+        patterns:
+          - "jest"
+          - "@jest/*"
+          - "vitest"
+          - "@playwright/*"
+          - "playwright"
+
+      # ------------------------------------------------------
+      # ESLINT
+      # ------------------------------------------------------
+
+      eslint:
+        patterns:
+          - "eslint"
+          - "@eslint/*"
+          - "typescript-eslint"
+          - "@typescript-eslint/*"
+
+
+  # ==========================================================
+  # GITHUB ACTIONS
+  # ==========================================================
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "02:30"
+      timezone: "Africa/Lagos"
+
+    open-pull-requests-limit: 10
+
+    labels:
+      - "security:automated"
+      - "scanner:sca"
+      - "type:dependency"
+
+    commit-message:
+      prefix: "ci"
+
+    reviewers:
+      - "Coreinfra-Labs/devsecops"
+
+    groups:
+      github-actions:
+        patterns:
+          - "*"
