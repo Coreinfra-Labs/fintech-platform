@@ -1,0 +1,71 @@
+# ==========================================================
+# GLOBAL DEFAULT OWNER
+# ==========================================================
+
+* @Coreinfra-Labs/platform
+
+
+# ==========================================================
+# BACKEND APPLICATIONS
+# ==========================================================
+
+/services/api-gateway/          @Coreinfra-Labs/backend
+/services/fraud-service/        @Coreinfra-Labs/backend
+/services/mock-services/        @Coreinfra-Labs/backend
+/services/notification-service/ @Coreinfra-Labs/backend
+/services/payment-service/      @Coreinfra-Labs/backend
+/services/transaction-service/  @Coreinfra-Labs/backend
+/services/user-service/         @Coreinfra-Labs/backend
+/services/wallet-service/       @Coreinfra-Labs/backend
+
+
+# ==========================================================
+# FRONTEND APPLICATION
+# ==========================================================
+
+/services/web/                  @Coreinfra-Labs/frontend
+/services/web-e2e/              @Coreinfra-Labs/frontend
+
+
+# ==========================================================
+# SHARED LIBRARIES
+# ==========================================================
+
+/libs/                           @Coreinfra-Labs/backend
+
+
+# ==========================================================
+# CI/CD
+# ==========================================================
+
+/.github/workflows/              @Coreinfra-Labs/platform
+
+
+# ==========================================================
+# SECURITY AUTOMATION
+# ==========================================================
+
+/.github/workflows/security/     @Coreinfra-Labs/devsecops
+/.github/workflows/security-scheduled.yml @Coreinfra-Labs/devsecops
+/.github/workflows/security-notification.yml @Coreinfra-Labs/devsecops
+
+
+# ==========================================================
+# DEPENDENCY SECURITY
+# ==========================================================
+
+/.github/dependabot.yml          @Coreinfra-Labs/security
+
+
+# ==========================================================
+# SECURITY ISSUE MANAGEMENT
+# ==========================================================
+
+/.github/ISSUE_TEMPLATE/         @Coreinfra-Labs/security
+
+
+# ==========================================================
+# CODEOWNERS PROTECTION
+# ==========================================================
+
+/.github/CODEOWNERS              @Coreinfra-Labs/security
