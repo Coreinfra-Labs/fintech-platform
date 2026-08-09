@@ -1,0 +1,145 @@
+version: 2
+
+updates:
+
+  # ==========================================================
+  # NPM / PNPM DEPENDENCIES
+  #
+  # Normal version updates  -> develop
+  # Security updates        -> main
+  # ==========================================================
+
+  - package-ecosystem: "npm"
+    directory: "/"
+
+    target-branch: "develop"
+
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "02:00"
+      timezone: "Africa/Lagos"
+
+    # Limit normal dependency PRs
+    open-pull-requests-limit: 3
+
+    # Wait for releases to mature
+    cooldown:
+      default-days: 7
+
+    labels:
+      - "security:automated"
+      - "scanner:sca"
+      - "type:dependency"
+
+    commit-message:
+      prefix: "deps"
+
+    reviewers:
+      - "Coreinfra-Labs/security"
+
+    groups:
+
+      # --------------------------------------------------------
+      # Nx
+      # --------------------------------------------------------
+
+      nx:
+        patterns:
+          - "@nx/*"
+          - "nx"
+
+      # --------------------------------------------------------
+      # React
+      # --------------------------------------------------------
+
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "react-*"
+          - "@types/react*"
+
+      # --------------------------------------------------------
+      # Angular
+      # --------------------------------------------------------
+
+      angular:
+        patterns:
+          - "@angular/*"
+
+      # --------------------------------------------------------
+      # TypeScript
+      # --------------------------------------------------------
+
+      typescript:
+        patterns:
+          - "typescript"
+          - "@types/node"
+
+      # --------------------------------------------------------
+      # Testing
+      # --------------------------------------------------------
+
+      testing:
+        patterns:
+          - "jest"
+          - "@jest/*"
+          - "vitest"
+          - "@vitest/*"
+          - "playwright"
+          - "@playwright/*"
+
+      # --------------------------------------------------------
+      # ESLint
+      # --------------------------------------------------------
+
+      eslint:
+        patterns:
+          - "eslint"
+          - "@eslint/*"
+          - "typescript-eslint"
+          - "@typescript-eslint/*"
+
+
+  # ==========================================================
+  # GITHUB ACTIONS
+  #
+  # Normal version updates  -> develop
+  # Security updates        -> main
+  # ==========================================================
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+
+    target-branch: "develop"
+
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "02:30"
+      timezone: "Africa/Lagos"
+
+    # Limit normal GitHub Actions update PRs
+    open-pull-requests-limit: 2
+
+    cooldown:
+      default-days: 7
+
+    labels:
+      - "security:automated"
+      - "scanner:sca"
+      - "type:dependency"
+
+    commit-message:
+      prefix: "ci"
+
+    reviewers:
+      - "Coreinfra-Labs/devsecops"
+
+    groups:
+
+      # Group normal GitHub Actions updates
+      github-actions:
+        patterns:
+          - "*"
