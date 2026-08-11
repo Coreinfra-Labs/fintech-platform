@@ -1,0 +1,26 @@
+name: DAST - OWASP ZAP
+
+on:
+  workflow_call:
+    secrets:
+      GITHUB_TOKEN:
+        required: true
+
+jobs:
+  dast-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run OWASP ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.9.0
+        with:
+          target: "https://your-production-url.com"
+          rules_file_name: zap-rules.tsv
+          cmd_options: "-a"
+      - name: Upload DAST report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dast-results
+          path: report_html.html
+          retention-days: 7

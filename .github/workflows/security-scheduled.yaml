@@ -1,0 +1,53 @@
+name: Security - Scheduled
+
+on:
+  schedule:
+    - cron: "0 2 * * *" # Daily 02:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  sca-trivy:
+    uses: ./.github/workflows/security/sca-trivy.yaml
+
+  sonar-sast:
+    uses: ./.github/workflows/security/sonar.yml
+
+  gitleaks:
+    uses: ./.github/workflows/security/gitleaks.yml
+
+  iac-security:
+    uses: ./.github/workflows/security/iac.yml
+
+  dast:
+    uses: ./.github/workflows/security/dast.yml
+
+  security-gate:
+    name: Security Gate
+    needs: [sca-trivy, sonar-sast, gitleaks, iac-security, dast]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Evaluate Security Gate
+        run: |
+          echo "Trivy: ${{ needs.sca-trivy.result }}"
+          echo "SonarQube: ${{ needs.sonar-sast.result }}"
+          echo "Gitleaks: ${{ needs.gitleaks.result }}"
+          echo "IaC: ${{ needs.iac-security.result }}"
+          echo "DAST: ${{ needs.dast.result }}"
+
+          if [[ \
+            "${{ needs.sca-trivy.result }}" != "success" || \
+            "${{ needs.sonar-sast.result }}" != "success" || \
+            "${{ needs.gitleaks.result }}" != "success" || \
+            "${{ needs.iac-security.result }}" != "success" || \
+            "${{ needs.dast.result }}" != "success" \
+          ]]; then
+            echo "Security Gate FAILED"
+            exit 1
+          fi
+
+          echo "Security Gate PASSED"

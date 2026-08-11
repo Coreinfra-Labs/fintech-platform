@@ -17,10 +17,10 @@ jobs:
   security-gate:
     name: Security Gate
     needs:
-      - nx-ci
-      - sonar
-      - gitleaks
-      - sca-trivy
+      - Nx CI
+      - SonarQube SAST
+      - Gitleaks Secret Scan
+      - Trivy Dependency Scan
 
     if: always()
 

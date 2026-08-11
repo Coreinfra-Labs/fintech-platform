@@ -2,16 +2,16 @@ version: 2
 
 updates:
 
-  # ==========================================================
-  # NPM / PNPM DEPENDENCIES
+
+
+  # ============================================================
+  # NORMAL NPM / PNPM DEPENDENCY UPDATES
   #
-  # Normal version updates  -> develop
-  # Security updates        -> main
-  # ==========================================================
+  # Dependabot → develop → CI → Security → Review → Merge
+  # ============================================================
 
   - package-ecosystem: "npm"
     directory: "/"
-
     target-branch: "develop"
 
     schedule:
@@ -20,10 +20,8 @@ updates:
       time: "02:00"
       timezone: "Africa/Lagos"
 
-    # Limit normal dependency PRs
     open-pull-requests-limit: 3
 
-    # Wait for releases to mature
     cooldown:
       default-days: 7
 
@@ -35,23 +33,15 @@ updates:
     commit-message:
       prefix: "deps"
 
-    reviewers:
-      - "Coreinfra-Labs/security"
-
     groups:
-
-      # --------------------------------------------------------
-      # Nx
-      # --------------------------------------------------------
 
       nx:
         patterns:
-          - "@nx/*"
           - "nx"
-
-      # --------------------------------------------------------
-      # React
-      # --------------------------------------------------------
+          - "@nx/*"
+        update-types:
+          - "minor"
+          - "patch"
 
       react:
         patterns:
@@ -59,27 +49,24 @@ updates:
           - "react-dom"
           - "react-*"
           - "@types/react*"
-
-      # --------------------------------------------------------
-      # Angular
-      # --------------------------------------------------------
+        update-types:
+          - "minor"
+          - "patch"
 
       angular:
         patterns:
           - "@angular/*"
-
-      # --------------------------------------------------------
-      # TypeScript
-      # --------------------------------------------------------
+        update-types:
+          - "minor"
+          - "patch"
 
       typescript:
         patterns:
           - "typescript"
           - "@types/node"
-
-      # --------------------------------------------------------
-      # Testing
-      # --------------------------------------------------------
+        update-types:
+          - "minor"
+          - "patch"
 
       testing:
         patterns:
@@ -89,10 +76,9 @@ updates:
           - "@vitest/*"
           - "playwright"
           - "@playwright/*"
-
-      # --------------------------------------------------------
-      # ESLint
-      # --------------------------------------------------------
+        update-types:
+          - "minor"
+          - "patch"
 
       eslint:
         patterns:
@@ -100,18 +86,20 @@ updates:
           - "@eslint/*"
           - "typescript-eslint"
           - "@typescript-eslint/*"
+        update-types:
+          - "minor"
+          - "patch"
 
 
-  # ==========================================================
+  # ============================================================
   # GITHUB ACTIONS
   #
-  # Normal version updates  -> develop
-  # Security updates        -> main
-  # ==========================================================
+  # Normal updates → develop
+  # Security updates → main automatically
+  # ============================================================
 
   - package-ecosystem: "github-actions"
     directory: "/"
-
     target-branch: "develop"
 
     schedule:
@@ -120,7 +108,6 @@ updates:
       time: "02:30"
       timezone: "Africa/Lagos"
 
-    # Limit normal GitHub Actions update PRs
     open-pull-requests-limit: 2
 
     cooldown:
@@ -134,12 +121,11 @@ updates:
     commit-message:
       prefix: "ci"
 
-    reviewers:
-      - "Coreinfra-Labs/devsecops"
-
     groups:
 
-      # Group normal GitHub Actions updates
       github-actions:
         patterns:
           - "*"
+        update-types:
+          - "minor"
+          - "patch"

@@ -1,0 +1,52 @@
+name: Security - SLA Enforcement
+
+on:
+  schedule:
+    - cron: "0 0 * * *" # Daily midnight UTC
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  contents: read
+  projects: write
+
+jobs:
+  sla-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check SLA Breaches
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'status:triage',
+              state: 'open'
+            });
+
+            for (const issue of issues.data) {
+              const created = new Date(issue.created_at);
+              const now = new Date();
+              const diffDays = (now - created) / (1000 * 60 * 60 * 24);
+
+              let slaDays = 7;
+              let severity = "medium";
+              if (issue.labels.some(l => l.name === 'severity:critical')) { slaDays = 1; severity = "critical"; }
+              else if (issue.labels.some(l => l.name === 'severity:high')) { slaDays = 3; severity = "high"; }
+              else if (issue.labels.some(l => l.name === 'severity:medium')) { slaDays = 7; severity = "medium"; }
+              else if (issue.labels.some(l => l.name === 'severity:low')) { slaDays = 14; severity = "low"; }
+
+              if (diffDays > slaDays) {
+                // Determine team from CODEOWNERS-like mapping
+                let team = "@Coreinfra-Labs/platform";
+                const title = issue.title.toLowerCase();
+                if (title.includes("api-gateway") || title.includes("payment-service") || title.includes("user-service")) {
+                  team = "@Coreinfra-Labs/backend";
+                } else if (title.includes("web") || title.includes("web-e2e")) {
+                  team = "@Coreinfra-Labs/frontend";
+                } else if (title.includes("libs")) {
+                  team = "@Coreinfra-Labs/backend";
+                } else if (title.includes("security") || title.includes("gitleaks") || title.includes("iac")) {
+                  team = "@Coreinfra-Labs/devsecops";
+                } else if (title.includes("depend
