@@ -1,0 +1,315 @@
+name: Deploy
+
+on:
+
+  # ==========================================================
+  # REUSABLE WORKFLOW
+  # Used by release.yaml and other workflows.
+  # ==========================================================
+
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+
+      release_version:
+        required: true
+        type: string
+
+      release_run_id:
+        required: false
+        type: string
+        default: ""
+
+  # ==========================================================
+  # MANUAL DEPLOYMENT / PRODUCTION PROMOTION
+  # ==========================================================
+
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+
+      release_version:
+        description: Release version
+        required: true
+        type: string
+
+      release_run_id:
+        description: Release workflow run ID
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+
+  # ==========================================================
+  # STAGE 1 — VALIDATE DEPLOYMENT
+  # ==========================================================
+
+  deploy:
+
+    name: Deploy ${{ inputs.release_version }} → ${{ inputs.environment }}
+
+    runs-on: ubuntu-latest
+
+    # GitHub Environment provides protection rules such as
+    # required reviewers for production.
+    environment:
+      name: ${{ inputs.environment }}
+
+    steps:
+
+      # --------------------------------------------------------
+      # Stage 1.1 — Checkout Repository
+      # --------------------------------------------------------
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # --------------------------------------------------------
+      # Stage 1.2 — Install yq
+      # --------------------------------------------------------
+
+      - name: Install yq
+        uses: mikefarah/yq@v4.47.1
+
+      # ========================================================
+      # STAGE 2 — LOAD APPROVED RELEASE
+      #
+      # Download the exact manifest produced by release.yaml.
+      # No image is rebuilt or selected by tag.
+      # ========================================================
+
+      - name: Download Release Manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: release-manifest
+          path: release
+          run-id: ${{ inputs.release_run_id || github.run_id }}
+          github-token: ${{ github.token }}
+
+      # --------------------------------------------------------
+      # Stage 2.1 — Verify Release Version
+      # --------------------------------------------------------
+
+      - name: Verify Release Version
+        run: |
+          set -euo pipefail
+
+          VERSION=$(yq -r '.version' release/release-manifest.yaml)
+
+          [[ "$VERSION" == "${{ inputs.release_version }}" ]] || {
+            echo "::error::Release version mismatch"
+            echo "Requested: ${{ inputs.release_version }}"
+            echo "Manifest:  $VERSION"
+            exit 1
+          }
+
+      # ========================================================
+      # STAGE 3 — AWS AUTHENTICATION
+      # ========================================================
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ========================================================
+      # STAGE 4 — KUBERNETES AUTHENTICATION
+      # ========================================================
+
+      - name: Configure Kubernetes
+        run: |
+          aws eks update-kubeconfig \
+            --region "$AWS_REGION" \
+            --name "fintech-${{ inputs.environment }}"
+
+      # ========================================================
+      # STAGE 5 — VERIFY IMMUTABLE ARTIFACTS
+      #
+      # Confirm every digest in the release manifest still exists
+      # in ECR before deployment.
+      # ========================================================
+
+      - name: Verify ECR Images
+        run: |
+          set -euo pipefail
+
+          for service in $(yq -r '.images | keys[]' release/release-manifest.yaml); do
+
+            repository=$(yq -r ".images.${service}.repository" \
+              release/release-manifest.yaml)
+
+            digest=$(yq -r ".images.${service}.digest" \
+              release/release-manifest.yaml)
+
+            repo="${repository##*/}"
+
+            echo "Checking ${service}@${digest}"
+
+            aws ecr describe-images \
+              --repository-name "$repo" \
+              --image-ids imageDigest="$digest" \
+              >/dev/null
+
+          done
+
+          echo "All release images verified."
+
+      # ========================================================
+      # STAGE 6 — GENERATE HELM VALUES
+      #
+      # Convert the release manifest into the values consumed
+      # by the Helm chart.
+      # ========================================================
+
+      - name: Generate Helm Values
+        run: |
+          yq '
+            {
+              images: (
+                .images |
+                with_entries(
+                  .value = {
+                    repository: .value.repository,
+                    digest: .value.digest
+                  }
+                )
+              )
+            }
+          ' release/release-manifest.yaml > release/values.yaml
+
+          cat release/values.yaml
+
+      # ========================================================
+      # STAGE 7 — DEPLOY IMMUTABLE RELEASE
+      #
+      # One Helm upgrade for the complete application.
+      # Images are referenced by digest, never by mutable tag.
+      # ========================================================
+
+      - name: Deploy Release
+        run: |
+          helm upgrade fintech ./helm \
+            --install \
+            --create-namespace \
+            --namespace "${{ inputs.environment }}" \
+            --values release/values.yaml \
+            --set-string release.version="${{ inputs.release_version }}" \
+            --atomic \
+            --wait \
+            --timeout 15m
+
+      # ========================================================
+      # STAGE 8 — VERIFY ROLLOUT
+      # ========================================================
+
+      - name: Verify Rollouts
+        run: |
+          set -euo pipefail
+
+          for service in $(yq -r '.images | keys[]' release/release-manifest.yaml); do
+
+            echo "Checking ${service}"
+
+            kubectl rollout status \
+              "deployment/${service}" \
+              --namespace "${{ inputs.environment }}" \
+              --timeout=10m
+
+          done
+
+      # ========================================================
+      # STAGE 9 — VERIFY RUNNING DIGESTS
+      #
+      # Make sure Kubernetes is actually running the exact
+      # digests approved in the release manifest.
+      # ========================================================
+
+      - name: Verify Running Digests
+        run: |
+          set -euo pipefail
+
+          for service in $(yq -r '.images | keys[]' release/release-manifest.yaml); do
+
+            expected=$(yq -r \
+              ".images.${service}.digest" \
+              release/release-manifest.yaml)
+
+            actual=$(kubectl get deployment "$service" \
+              --namespace "${{ inputs.environment }}" \
+              -o jsonpath='{.spec.template.spec.containers[0].image}')
+
+            echo "${service}:"
+            echo "  Expected: ${expected}"
+            echo "  Running:  ${actual}"
+
+            [[ "$actual" == *"@${expected}"* ]] || {
+              echo "::error::Digest mismatch for ${service}"
+              exit 1
+            }
+
+          done
+
+      # ========================================================
+      # STAGE 10 — STAGING SMOKE TESTS
+      # ========================================================
+
+      - name: Smoke Tests
+        if: inputs.environment == 'staging'
+        run: ./tests/smoke.sh
+
+      # ========================================================
+      # STAGE 11 — STAGING INTEGRATION TESTS
+      # ========================================================
+
+      - name: Integration Tests
+        if: inputs.environment == 'staging'
+        run: ./tests/integration.sh
+
+      # ========================================================
+      # STAGE 12 — STAGING DAST
+      # ========================================================
+
+      - name: DAST Scan
+        if: inputs.environment == 'staging'
+        run: ./tests/dast.sh
+
+      # ========================================================
+      # STAGE 13 — DEPLOYMENT SUMMARY
+      # ========================================================
+
+      - name: Deployment Summary
+        if: always()
+        run: |
+          {
+            echo "## Deployment"
+            echo ""
+            echo "**Environment:** ${{ inputs.environment }}"
+            echo "**Release:** ${{ inputs.release_version }}"
+            echo ""
+            echo "### Images"
+            echo ""
+
+            yq -r '
+              .images |
+              to_entries[] |
+              "- \(.key): \(.value.repository)@\(.value.digest)"
+            ' release/release-manifest.yaml
+
+          } >> "$GITHUB_STEP_SUMMARY"
