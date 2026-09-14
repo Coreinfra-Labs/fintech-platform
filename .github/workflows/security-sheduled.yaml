@@ -1,7 +1,7 @@
 name: Security - Scheduled
 
 on:
-  # ==========================================================
+  # =========================================================
   # DAILY SECURITY SCAN
   #
   # Detect newly disclosed vulnerabilities even when there
