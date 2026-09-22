@@ -13,7 +13,7 @@ jobs:
 
   trivy-sca:
     name: Trivy Dependency Scan
-    uses: ./.github/workflows/sca-trivy.yml
+    uses: ./.github/workflows/security /sca-trivy.yml
 
   notify-status:
 
