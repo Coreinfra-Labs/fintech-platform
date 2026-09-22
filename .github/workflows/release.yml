@@ -3,6 +3,19 @@ name: Release
 on:
   workflow_dispatch:
     inputs:
+      service:
+        description: Service To Release
+        required: true
+        type: choice
+        options:
+          - api-gateway
+          - user-service
+          - payment-service
+          - wallet-service
+          - transaction-service
+          - notification-service
+          - fraud-service
+
       version:
         description: Release Version (Example: v1.3.5)
         required: true
@@ -12,50 +25,162 @@ permissions:
   contents: read
   id-token: write
 
+concurrency:
+  group: release-${{ inputs.service }}
+  cancel-in-progress: false
+
 env:
   AWS_REGION: us-east-1
-  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com
+  ECR_REGISTRY: "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com"
 
 jobs:
+
   release:
-    name: Build & Push Docker Images
+    name: Build And Publish Release
     runs-on: ubuntu-latest
 
-    strategy:
-      matrix:
-        service:
-          - api-gateway
-          - user-service
-          - payment-service
-          - wallet-service
-          - transaction-service
-          - notification-service
-          - fraud-service
+    outputs:
+      service: ${{ steps.release_metadata.outputs.service }}
+      version: ${{ steps.release_metadata.outputs.version }}
+      commit: ${{ steps.release_metadata.outputs.commit }}
+      image_tag: ${{ steps.release_metadata.outputs.image_tag }}
+      digest: ${{ steps.capture_digest.outputs.digest }}
+      release_id: ${{ steps.release_metadata.outputs.release_id }}
 
     steps:
+
+      # ============================================================
+      # 1. SOURCE CHECKOUT
+      # ============================================================
+
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Validate Version
+      # ============================================================
+      # 2. RELEASE SOURCE VALIDATION
+      # ============================================================
+
+      - name: Verify Release Branch
+        shell: bash
         run: |
-          VERSION="${{ inputs.version }}"
+          set -euo pipefail
 
-          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Invalid version."
-            echo "::error::Expected: v1.3.5"
+          BRANCH="${GITHUB_REF_NAME}"
+
+          if [[ "$BRANCH" != "develop" ]]; then
+            echo "ERROR: Release must be created from develop."
+            echo "Current branch: $BRANCH"
             exit 1
           fi
 
-      - name: Generate Release Metadata
+          echo "Release branch verified: $BRANCH"
+
+      # ============================================================
+      # 3. RELEASE VERSION VALIDATION
+      # ============================================================
+
+      - name: Validate Release Version
+        shell: bash
         run: |
-          VERSION=${{ inputs.version }}
-          COMMIT=$(git rev-parse --short HEAD)
+          set -euo pipefail
 
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "COMMIT=$COMMIT" >> $GITHUB_ENV
-          echo "IMAGE_TAG=${VERSION}-${COMMIT}" >> $GITHUB_ENV
+          VERSION="${{ inputs.version }}"
 
-      - name: Setup Node
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "ERROR: Invalid release version: $VERSION"
+            echo "Expected format: v1.3.5"
+            exit 1
+          fi
+
+          echo "Release version validated: $VERSION"
+
+      # ============================================================
+      # 4. SERVICE VALIDATION
+      # ============================================================
+
+      - name: Validate Release Service
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SERVICE="${{ inputs.service }}"
+
+          case "$SERVICE" in
+            api-gateway|\
+            user-service|\
+            payment-service|\
+            wallet-service|\
+            transaction-service|\
+            notification-service|\
+            fraud-service)
+              ;;
+            *)
+              echo "ERROR: Invalid service: $SERVICE"
+              exit 1
+              ;;
+          esac
+
+          DOCKERFILE="services/$SERVICE/Dockerfile"
+
+          if [[ ! -f "$DOCKERFILE" ]]; then
+            echo "ERROR: Dockerfile not found:"
+            echo "$DOCKERFILE"
+            exit 1
+          fi
+
+          echo "Service validated: $SERVICE"
+          echo "Dockerfile: $DOCKERFILE"
+
+      # ============================================================
+      # 5. RELEASE METADATA
+      # ============================================================
+
+      - name: Generate Release Metadata
+        id: release_metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SERVICE="${{ inputs.service }}"
+          VERSION="${{ inputs.version }}"
+
+          COMMIT="$(git rev-parse HEAD)"
+          SHORT_COMMIT="$(git rev-parse --short=7 HEAD)"
+
+          IMAGE_TAG="${VERSION}-${SHORT_COMMIT}"
+          RELEASE_ID="${SERVICE}-${VERSION}-${SHORT_COMMIT}"
+
+          echo "service=$SERVICE" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+          echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+          echo "release_id=$RELEASE_ID" >> "$GITHUB_OUTPUT"
+
+          echo "SERVICE=$SERVICE" >> "$GITHUB_ENV"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "COMMIT=$COMMIT" >> "$GITHUB_ENV"
+          echo "SHORT_COMMIT=$SHORT_COMMIT" >> "$GITHUB_ENV"
+          echo "IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_ENV"
+          echo "RELEASE_ID=$RELEASE_ID" >> "$GITHUB_ENV"
+
+          echo "=============================================="
+          echo "Release Metadata"
+          echo "=============================================="
+          echo "Service      : $SERVICE"
+          echo "Version      : $VERSION"
+          echo "Commit       : $COMMIT"
+          echo "Short Commit : $SHORT_COMMIT"
+          echo "Image Tag    : $IMAGE_TAG"
+          echo "Release ID   : $RELEASE_ID"
+          echo "=============================================="
+
+      # ============================================================
+      # 6. BUILD TOOLCHAIN
+      # ============================================================
+
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -65,22 +190,297 @@ jobs:
         with:
           version: 9
 
+      # ============================================================
+      # 7. DEPENDENCY INSTALLATION
+      # ============================================================
+
       - name: Install Dependencies
-        run: pnpm install --frozen-lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          pnpm install --frozen-lockfile
+
+      # ============================================================
+      # 8. AWS AUTHENTICATION
+      # ============================================================
 
       - name: Configure AWS Credentials
-        # aws-actions/configure-aws-credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Login to Amazon ECR
-        # aws-actions/amazon-ecr-login
+      # ============================================================
+      # 9. ECR REPOSITORY VALIDATION
+      # ============================================================
+
+      - name: Validate ECR Repository
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          aws ecr describe-repositories \
+            --repository-names "$SERVICE" \
+            --region "$AWS_REGION" \
+            > /dev/null
+
+          echo "ECR repository exists: $SERVICE"
+
+      # ============================================================
+      # 10. ECR TAG IMMUTABILITY
+      # ============================================================
+
+      - name: Verify ECR Tag Immutability
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          MUTABILITY=$(aws ecr describe-repositories \
+            --repository-names "$SERVICE" \
+            --region "$AWS_REGION" \
+            --query 'repositories[0].imageTagMutability' \
+            --output text)
+
+          echo "ECR tag mutability: $MUTABILITY"
+
+          if [[ "$MUTABILITY" != "IMMUTABLE" ]]; then
+            echo "ERROR: ECR repository must use IMMUTABLE image tags."
+            exit 1
+          fi
+
+          echo "ECR tag immutability verified."
+
+      # ============================================================
+      # 11. RELEASE TAG AVAILABILITY
+      # ============================================================
+
+      - name: Verify Image Tag Does Not Exist
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if aws ecr describe-images \
+            --repository-name "$SERVICE" \
+            --image-ids imageTag="$IMAGE_TAG" \
+            --region "$AWS_REGION" \
+            > /dev/null 2>&1; then
+
+            echo "ERROR: Image tag already exists:"
+            echo "$SERVICE:$IMAGE_TAG"
+            echo ""
+            echo "Immutable ECR tags prevent overwriting an existing release."
+            exit 1
+          fi
+
+          echo "Image tag is available: $IMAGE_TAG"
+
+      # ============================================================
+      # 12. ECR AUTHENTICATION
+      # ============================================================
+
+      - name: Login To Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ============================================================
+      # 13. DOCKER IMAGE BUILD
+      # ============================================================
 
       - name: Build Docker Image
+        shell: bash
         run: |
+          set -euo pipefail
+
+          IMAGE_URI="$ECR_REGISTRY/$SERVICE:$IMAGE_TAG"
+
+          echo "Building Docker image:"
+          echo "$IMAGE_URI"
+
           docker build \
-          -f services/${{ matrix.service }}/Dockerfile \
-          -t $ECR_REGISTRY/${{ matrix.service }}:${IMAGE_TAG} .
+            --file "services/$SERVICE/Dockerfile" \
+            --tag "$IMAGE_URI" \
+            .
+
+          echo "Docker image build completed."
+
+      # ============================================================
+      # 14. DOCKER IMAGE PUSH
+      # ============================================================
 
       - name: Push Docker Image
+        shell: bash
         run: |
-          docker push \
-          $ECR_REGISTRY/${{ matrix.service }}:${IMAGE_TAG}
+          set -euo pipefail
+
+          IMAGE_URI="$ECR_REGISTRY/$SERVICE:$IMAGE_TAG"
+
+          echo "Pushing Docker image:"
+          echo "$IMAGE_URI"
+
+          docker push "$IMAGE_URI"
+
+          echo "Docker image pushed successfully."
+
+      # ============================================================
+      # 15. CAPTURE IMMUTABLE IMAGE DIGEST
+      # ============================================================
+
+      - name: Capture ECR Image Digest
+        id: capture_digest
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          DIGEST=$(aws ecr describe-images \
+            --repository-name "$SERVICE" \
+            --image-ids imageTag="$IMAGE_TAG" \
+            --region "$AWS_REGION" \
+            --query 'imageDetails[0].imageDigest' \
+            --output text)
+
+          if [[ -z "$DIGEST" || "$DIGEST" == "None" ]]; then
+            echo "ERROR: Unable to retrieve ECR image digest."
+            exit 1
+          fi
+
+          if [[ ! "$DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo "ERROR: Invalid ECR digest:"
+            echo "$DIGEST"
+            exit 1
+          fi
+
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "DIGEST=$DIGEST" >> "$GITHUB_ENV"
+
+          echo "=============================================="
+          echo "Immutable Image Identity"
+          echo "=============================================="
+          echo "Service : $SERVICE"
+          echo "Tag     : $IMAGE_TAG"
+          echo "Digest  : $DIGEST"
+          echo "=============================================="
+
+      # ============================================================
+      # 16. DIGEST VERIFICATION
+      # ============================================================
+
+      - name: Verify ECR Image Digest
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERIFIED_DIGEST=$(aws ecr describe-images \
+            --repository-name "$SERVICE" \
+            --image-ids imageTag="$IMAGE_TAG" \
+            --region "$AWS_REGION" \
+            --query 'imageDetails[0].imageDigest' \
+            --output text)
+
+          if [[ "$VERIFIED_DIGEST" != "$DIGEST" ]]; then
+            echo "ERROR: ECR digest verification failed."
+            echo "Captured : $DIGEST"
+            echo "Verified : $VERIFIED_DIGEST"
+            exit 1
+          fi
+
+          echo "ECR digest verification successful."
+          echo "Digest: $DIGEST"
+
+      # ============================================================
+      # 17. RELEASE ARTIFACT GENERATION
+      # ============================================================
+
+      - name: Generate Release Artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p release
+
+          cat <<EOF > release/release.json
+          {
+            "release_id": "${RELEASE_ID}",
+            "service": "${SERVICE}",
+            "version": "${VERSION}",
+            "image_tag": "${IMAGE_TAG}",
+            "digest": "${DIGEST}",
+            "commit": "${COMMIT}",
+            "short_commit": "${SHORT_COMMIT}",
+            "repository": "${ECR_REGISTRY}/${SERVICE}",
+            "image": "${ECR_REGISTRY}/${SERVICE}:${IMAGE_TAG}",
+            "environment": "pending",
+            "created_at": "$(date -u +%FT%TZ)",
+            "release_workflow": "${GITHUB_WORKFLOW}",
+            "release_run_id": "${GITHUB_RUN_ID}",
+            "source_repository": "${GITHUB_REPOSITORY}",
+            "source_branch": "${GITHUB_REF_NAME}"
+          }
+          EOF
+
+          echo "$SERVICE" > release/service.txt
+          echo "$VERSION" > release/version.txt
+          echo "$IMAGE_TAG" > release/image-tag.txt
+          echo "$DIGEST" > release/digest.txt
+          echo "$COMMIT" > release/commit.txt
+          echo "$RELEASE_ID" > release/release-id.txt
+          echo "$GITHUB_RUN_ID" > release/release-run-id.txt
+
+          echo "=============================================="
+          echo "Release Artifact"
+          echo "=============================================="
+          cat release/release.json
+          echo "=============================================="
+
+      # ============================================================
+      # 18. RELEASE ARTIFACT UPLOAD
+      # ============================================================
+
+      - name: Upload Release Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ steps.release_metadata.outputs.release_id }}
+          path: release/
+          retention-days: 90
+
+      # ============================================================
+      # 19. RELEASE SUMMARY
+      # ============================================================
+
+      - name: Release Summary
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo ""
+          echo "=============================================="
+          echo "RELEASE CREATED SUCCESSFULLY"
+          echo "=============================================="
+          echo ""
+          echo "Service:"
+          echo "$SERVICE"
+          echo ""
+          echo "Version:"
+          echo "$VERSION"
+          echo ""
+          echo "Image Tag:"
+          echo "$IMAGE_TAG"
+          echo ""
+          echo "Commit:"
+          echo "$COMMIT"
+          echo ""
+          echo "Immutable Digest:"
+          echo "$DIGEST"
+          echo ""
+          echo "Release ID:"
+          echo "$RELEASE_ID"
+          echo ""
+          echo "ECR Image:"
+          echo "$ECR_REGISTRY/$SERVICE:$IMAGE_TAG"
+          echo ""
+          echo "Deployable Image:"
+          echo "$ECR_REGISTRY/$SERVICE@$DIGEST"
+          echo ""
+          echo "=============================================="
+          echo "NEXT:"
+          echo "Deploy this exact image digest to staging."
+          echo "=============================================="
