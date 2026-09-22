@@ -1,6 +1,9 @@
 name: Security - SCA
 
 on:
+
+  workflow_call:
+
   pull_request:
     branches:
       - develop
@@ -13,32 +16,30 @@ on:
 
   workflow_dispatch:
 
-  schedule:
-    - cron: "0 2 * * *"
-
 permissions:
   contents: read
+  security-events: write
 
 jobs:
+
   trivy-sca:
+
     name: Trivy Dependency Scan
+
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Cache Trivy
         uses: actions/cache@v4
         with:
           path: ~/.cache/trivy
           key: trivy-${{ runner.os }}
-          restore-keys: |
-            trivy-
 
-      - name: Trivy Filesystem Scan
+      - name: Run Trivy Scan
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: fs
@@ -46,31 +47,49 @@ jobs:
           scanners: vuln
           severity: CRITICAL,HIGH
           ignore-unfixed: true
-          format: table
-          exit-code: 1
+          format: json
+          output: trivy-results.json
+          exit-code: '1'
+
+      - name: Upload Trivy Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-results
+          path: trivy-results.json
 
   pnpm-audit:
+
     name: pnpm Dependency Audit
+
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9.8.0
-          run_install: false
+          version: 9
 
-      - name: Setup Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: pnpm
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: pnpm audit
-        run: pnpm audit --audit-level=high
+      - name: Run Audit
+        run: |
+          pnpm audit --json > pnpm-audit.json
+
+      - name: Upload pnpm Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pnpm-audit-report
+          path: pnpm-audit.json
