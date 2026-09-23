@@ -1,0 +1,494 @@
+# ================================================================
+# Dependabot Security Notification
+# File: .github/workflows/dependabot-security-notification.yml
+# ================================================================
+
+name: Dependabot Security Notification
+
+on:
+
+  # --------------------------------------------------------------
+  # RUN EVERY HOUR
+  # --------------------------------------------------------------
+
+  schedule:
+    - cron: "0 * * * *"
+
+  # --------------------------------------------------------------
+  # ALLOW MANUAL EXECUTION
+  # --------------------------------------------------------------
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  vulnerability-alerts: read
+  actions: read
+
+concurrency:
+  group: dependabot-security-notification
+  cancel-in-progress: false
+
+jobs:
+
+  # ==============================================================
+  # SECURITY ALERT CHECK
+  # ==============================================================
+
+  security-alerts:
+    name: Check Dependabot Security Alerts
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ============================================================
+      # 1. FIND PREVIOUS SUCCESSFUL RUN
+      # ============================================================
+
+      - name: Find previous successful run
+        id: previous-run
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          API_URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/dependabot-security-notification.yml/runs?status=success&per_page=2"
+
+          curl --fail-with-body \
+            --silent \
+            --show-error \
+            --request GET \
+            --url "$API_URL" \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2026-03-10" \
+            --output workflow-runs.json
+
+          python <<'PY'
+          import json
+          import os
+
+          with open(
+              "workflow-runs.json",
+              "r",
+              encoding="utf-8"
+          ) as f:
+              data = json.load(f)
+
+          runs = data.get("workflow_runs", [])
+
+          # --------------------------------------------------------
+          # FIRST RUN
+          # --------------------------------------------------------
+
+          if not runs:
+
+              print("No previous successful run found.")
+              print("This is the first run.")
+
+              with open(
+                  os.environ["GITHUB_OUTPUT"],
+                  "a"
+              ) as output:
+
+                  output.write("first_run=true\n")
+                  output.write("previous_run_time=\n")
+
+          # --------------------------------------------------------
+          # PREVIOUS SUCCESSFUL RUN
+          # --------------------------------------------------------
+
+          else:
+
+              previous = runs[0]
+
+              created_at = previous["created_at"]
+
+              print(
+                  f"Previous successful run: "
+                  f"{previous['id']}"
+              )
+
+              print(
+                  f"Previous run started: "
+                  f"{created_at}"
+              )
+
+              with open(
+                  os.environ["GITHUB_OUTPUT"],
+                  "a"
+              ) as output:
+
+                  output.write("first_run=false\n")
+                  output.write(
+                      f"previous_run_time={created_at}\n"
+                  )
+          PY
+
+      # ============================================================
+      # 2. GET DEPENDABOT ALERTS
+      # ============================================================
+
+      - name: Fetch Dependabot alerts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIOUS_RUN_TIME: ${{ steps.previous-run.outputs.previous_run_time }}
+          FIRST_RUN: ${{ steps.previous-run.outputs.first_run }}
+
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          OWNER="${GITHUB_REPOSITORY_OWNER}"
+          REPO="${GITHUB_REPOSITORY#*/}"
+
+          echo "Repository: ${OWNER}/${REPO}"
+
+          curl --fail-with-body \
+            --silent \
+            --show-error \
+            --request GET \
+            --url "https://api.github.com/repos/${OWNER}/${REPO}/dependabot/alerts?state=open%2Cfixed%2Cdismissed%2Cauto_dismissed&sort=updated&direction=desc&per_page=100" \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2026-03-10" \
+            --output dependabot-alerts.json
+
+          python <<'PY'
+          import json
+          import os
+          from datetime import datetime
+
+          with open(
+              "dependabot-alerts.json",
+              "r",
+              encoding="utf-8"
+          ) as f:
+              alerts = json.load(f)
+
+          previous_run = os.environ.get(
+              "PREVIOUS_RUN_TIME",
+              ""
+          )
+
+          first_run = (
+              os.environ.get("FIRST_RUN") == "true"
+          )
+
+          def parse_timestamp(value):
+
+              if not value:
+                  return None
+
+              return datetime.fromisoformat(
+                  value.replace("Z", "+00:00")
+              )
+
+          # --------------------------------------------------------
+          # FIRST RUN
+          #
+          # Only currently OPEN alerts are reported.
+          # --------------------------------------------------------
+
+          if first_run:
+
+              changed_alerts = [
+                  alert
+                  for alert in alerts
+                  if alert.get("state") == "open"
+              ]
+
+              print(
+                  f"First run: found "
+                  f"{len(changed_alerts)} "
+                  "currently open alert(s)."
+              )
+
+          # --------------------------------------------------------
+          # SUBSEQUENT RUN
+          #
+          # Only alerts updated after previous successful run.
+          # --------------------------------------------------------
+
+          else:
+
+              previous_time = parse_timestamp(
+                  previous_run
+              )
+
+              changed_alerts = []
+
+              for alert in alerts:
+
+                  updated_at = parse_timestamp(
+                      alert.get("updated_at")
+                  )
+
+                  if (
+                      updated_at
+                      and updated_at > previous_time
+                  ):
+                      changed_alerts.append(alert)
+
+              print(
+                  f"Found {len(changed_alerts)} alert(s) "
+                  f"updated since {previous_run}."
+              )
+
+          # --------------------------------------------------------
+          # SAVE CHANGED ALERTS
+          # --------------------------------------------------------
+
+          with open(
+              "changed-dependabot-alerts.json",
+              "w",
+              encoding="utf-8"
+          ) as f:
+
+              json.dump(
+                  changed_alerts,
+                  f,
+                  indent=2
+              )
+          PY
+
+      # ============================================================
+      # 3. SEND NEW/CHANGED ALERTS TO SLACK
+      # ============================================================
+
+      - name: Send Dependabot security notifications to Slack
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SECURITY_SLACK_WEBHOOK_URL }}
+
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${SLACK_WEBHOOK_URL:-}" ]]; then
+            echo "ERROR: SECURITY_SLACK_WEBHOOK_URL is not configured."
+            exit 1
+          fi
+
+          python <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          with open(
+              "changed-dependabot-alerts.json",
+              "r",
+              encoding="utf-8"
+          ) as f:
+              alerts = json.load(f)
+
+          if not alerts:
+
+              print(
+                  "No new or changed Dependabot alerts."
+              )
+
+              raise SystemExit(0)
+
+          messages = []
+
+          for alert in alerts:
+
+              number = alert.get(
+                  "number",
+                  "unknown"
+              )
+
+              state = alert.get(
+                  "state",
+                  "unknown"
+              )
+
+              dependency = (
+                  alert.get("dependency")
+                  or {}
+              )
+
+              package = (
+                  dependency.get("package")
+                  or {}
+              )
+
+              package_name = package.get(
+                  "name",
+                  "Unknown dependency"
+              )
+
+              ecosystem = package.get(
+                  "ecosystem",
+                  "unknown"
+              )
+
+              advisory = (
+                  alert.get("security_advisory")
+                  or {}
+              )
+
+              severity = (
+                  advisory.get("severity")
+                  or "unknown"
+              ).upper()
+
+              summary = advisory.get(
+                  "summary",
+                  "Known vulnerability detected"
+              )
+
+              cve = advisory.get("cve_id")
+              ghsa = advisory.get("ghsa_id")
+
+              vulnerability = (
+                  alert.get(
+                      "security_vulnerability"
+                  )
+                  or {}
+              )
+
+              vulnerable_range = (
+                  vulnerability.get(
+                      "vulnerable_version_range",
+                      "unknown"
+                  )
+              )
+
+              patched = (
+                  vulnerability.get(
+                      "first_patched_version"
+                  )
+                  or {}
+              )
+
+              patched_version = patched.get(
+                  "identifier"
+              )
+
+              alert_url = alert.get(
+                  "html_url",
+                  ""
+              )
+
+              # ----------------------------------------------------
+              # DETERMINE EVENT TYPE
+              # ----------------------------------------------------
+
+              if state == "open":
+
+                  if patched_version:
+                      event = "🚨 Vulnerability Update"
+                  else:
+                      event = "🚨 New Security Vulnerability"
+
+              elif state == "fixed":
+
+                  event = "✅ Vulnerability Fixed"
+
+              elif state == "dismissed":
+
+                  event = "⚠️ Vulnerability Dismissed"
+
+              elif state == "auto_dismissed":
+
+                  event = "⚠️ Vulnerability Auto-Dismissed"
+
+              else:
+
+                  event = "🔔 Dependabot Security Alert"
+
+              # ----------------------------------------------------
+              # BUILD MESSAGE
+              # ----------------------------------------------------
+
+              lines = [
+                  f"*{event}*",
+                  "",
+                  f"*Repository:* "
+                  f"{os.environ['GITHUB_REPOSITORY']}",
+                  f"*Dependency:* `{package_name}`",
+                  f"*Ecosystem:* `{ecosystem}`",
+                  f"*Severity:* `{severity}`",
+                  f"*State:* `{state}`",
+                  f"*Alert:* #{number}",
+                  "",
+                  f"*Summary:* {summary}",
+                  f"*Vulnerable range:* "
+                  f"`{vulnerable_range}`",
+              ]
+
+              if patched_version:
+
+                  lines.append(
+                      f"*Patched version:* "
+                      f"`{patched_version}`"
+                  )
+
+              else:
+
+                  lines.append(
+                      "*Patched version:* "
+                      "Not currently available"
+                  )
+
+              if cve:
+                  lines.append(
+                      f"*CVE:* `{cve}`"
+                  )
+
+              if ghsa:
+                  lines.append(
+                      f"*GHSA:* `{ghsa}`"
+                  )
+
+              if alert_url:
+
+                  lines.append(
+                      f"<{alert_url}|"
+                      "View Dependabot Alert>"
+                  )
+
+              messages.append(
+                  "\n".join(lines)
+              )
+
+          # --------------------------------------------------------
+          # SEND EACH ALERT SEPARATELY
+          # --------------------------------------------------------
+
+          for message in messages:
+
+              payload = json.dumps({
+                  "text": message
+              }).encode("utf-8")
+
+              request = urllib.request.Request(
+                  os.environ["SLACK_WEBHOOK_URL"],
+                  data=payload,
+                  headers={
+                      "Content-Type": "application/json"
+                  },
+                  method="POST"
+              )
+
+              with urllib.request.urlopen(
+                  request
+              ) as response:
+
+                  if (
+                      response.status < 200
+                      or response.status >= 300
+                  ):
+                      raise RuntimeError(
+                          f"Slack returned HTTP "
+                          f"{response.status}"
+                      )
+
+          print(
+              f"Sent {len(messages)} security "
+              "notification(s) to Slack."
+          )
+          PY
