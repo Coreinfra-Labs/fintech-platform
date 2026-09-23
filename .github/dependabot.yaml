@@ -1,18 +1,18 @@
+# ================================================================
+# Production-Ready Dependabot Configuration
+# File: .github/dependabot.yml
+# ================================================================
+
 version: 2
 
 updates:
 
-  # ==========================================================
-  # NPM / PNPM DEPENDENCIES
-  #
-  # Normal version updates  -> develop
-  # Security updates        -> main
-  # ==========================================================
+  # ==============================================================
+  # 1. NPM / PNPM DEPENDENCIES
+  # ==============================================================
 
   - package-ecosystem: "npm"
     directory: "/"
-
-    target-branch: "develop"
 
     schedule:
       interval: "weekly"
@@ -20,12 +20,7 @@ updates:
       time: "02:00"
       timezone: "Africa/Lagos"
 
-    # Limit normal dependency PRs
-    open-pull-requests-limit: 3
-
-    # Wait for releases to mature
-    cooldown:
-      default-days: 7
+    open-pull-requests-limit: 5
 
     labels:
       - "security:automated"
@@ -38,61 +33,48 @@ updates:
     reviewers:
       - "Coreinfra-Labs/security"
 
-    groups:
+    # ------------------------------------------------------------
+    # BLOCK MAJOR VERSION UPDATES
+    # ------------------------------------------------------------
 
-      # --------------------------------------------------------
-      # Nx
-      # --------------------------------------------------------
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+
+    # ------------------------------------------------------------
+    # GROUP RELATED PACKAGES
+    # ------------------------------------------------------------
+
+    groups:
 
       nx:
         patterns:
           - "@nx/*"
           - "nx"
 
-      # --------------------------------------------------------
-      # React
-      # --------------------------------------------------------
-
-      react:
-        patterns:
-          - "react"
-          - "react-dom"
-          - "react-*"
-          - "@types/react*"
-
-      # --------------------------------------------------------
-      # Angular
-      # --------------------------------------------------------
-
       angular:
         patterns:
           - "@angular/*"
 
-      # --------------------------------------------------------
-      # TypeScript
-      # --------------------------------------------------------
+      react:
+        patterns:
+          - "react"
+          - "react-*"
+          - "@types/react*"
 
       typescript:
         patterns:
           - "typescript"
           - "@types/node"
 
-      # --------------------------------------------------------
-      # Testing
-      # --------------------------------------------------------
-
       testing:
         patterns:
           - "jest"
           - "@jest/*"
           - "vitest"
-          - "@vitest/*"
-          - "playwright"
           - "@playwright/*"
-
-      # --------------------------------------------------------
-      # ESLint
-      # --------------------------------------------------------
+          - "playwright"
 
       eslint:
         patterns:
@@ -101,18 +83,12 @@ updates:
           - "typescript-eslint"
           - "@typescript-eslint/*"
 
-
-  # ==========================================================
-  # GITHUB ACTIONS
-  #
-  # Normal version updates  -> develop
-  # Security updates        -> main
-  # ==========================================================
+  # ==============================================================
+  # 2. GITHUB ACTIONS
+  # ==============================================================
 
   - package-ecosystem: "github-actions"
     directory: "/"
-
-    target-branch: "develop"
 
     schedule:
       interval: "weekly"
@@ -120,11 +96,7 @@ updates:
       time: "02:30"
       timezone: "Africa/Lagos"
 
-    # Limit normal GitHub Actions update PRs
-    open-pull-requests-limit: 2
-
-    cooldown:
-      default-days: 7
+    open-pull-requests-limit: 5
 
     labels:
       - "security:automated"
@@ -137,9 +109,21 @@ updates:
     reviewers:
       - "Coreinfra-Labs/devsecops"
 
+    # ------------------------------------------------------------
+    # BLOCK MAJOR ACTION CHANGES
+    # ------------------------------------------------------------
+
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+
+    # ------------------------------------------------------------
+    # GROUP GITHUB ACTION UPDATES
+    # ------------------------------------------------------------
+
     groups:
 
-      # Group normal GitHub Actions updates
       github-actions:
         patterns:
           - "*"
