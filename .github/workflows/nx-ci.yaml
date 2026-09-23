@@ -83,7 +83,7 @@ jobs:
 
       - name: Start Nx Cloud CI
         run: |
-          pnpm dlx nx start-ci-run \
+          pnpm exec nx start-ci-run \
             --distribute-on=".nx/workflows/distribution-config.yaml" \
             --stop-agents-after="e2e"
 
