@@ -1,0 +1,209 @@
+# ================================================================
+# Dependabot Major Version Review
+# File: .github/workflows/dependabot-major-review.yml
+# ================================================================
+
+name: Dependabot Major Version Review
+
+on:
+
+  # --------------------------------------------------------------
+  # FIRST DAY OF EVERY MONTH
+  # 09:00 UTC
+  # --------------------------------------------------------------
+
+  schedule:
+    - cron: "0 9 1 * *"
+
+  # --------------------------------------------------------------
+  # ALLOW MANUAL EXECUTION
+  # --------------------------------------------------------------
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+
+  # ==============================================================
+  # MAJOR DEPENDENCY REVIEW
+  # ==============================================================
+
+  major-review:
+    name: Review Major Dependency Updates
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ============================================================
+      # 1. SOURCE CHECKOUT
+      # ============================================================
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ============================================================
+      # 2. NODE.JS SETUP
+      # ============================================================
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # ============================================================
+      # 3. CHECK FOR MAJOR DEPENDENCY UPDATES
+      # ============================================================
+
+      - name: Check for major dependency updates
+        id: outdated
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          npm install --package-lock-only --ignore-scripts
+
+          npm outdated --json > outdated.json || true
+
+          cat outdated.json
+
+      # ============================================================
+      # 4. SEND MAJOR UPDATE REPORT TO SLACK
+      # ============================================================
+
+      - name: Send major update report to Slack
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SECURITY_SLACK_WEBHOOK_URL }}
+
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${SLACK_WEBHOOK_URL:-}" ]]; then
+            echo "ERROR: SECURITY_SLACK_WEBHOOK_URL is not configured."
+            exit 1
+          fi
+
+          python <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          try:
+              with open(
+                  "outdated.json",
+                  "r",
+                  encoding="utf-8"
+              ) as f:
+                  outdated = json.load(f)
+
+          except (FileNotFoundError, json.JSONDecodeError):
+              outdated = {}
+
+          major_updates = []
+
+          for name, info in outdated.items():
+
+              current = info.get("current")
+              wanted = info.get("wanted")
+              latest = info.get("latest")
+
+              if not current or not latest:
+                  continue
+
+              def major(version):
+                  try:
+                      version = version.lstrip("v")
+                      return int(version.split(".")[0])
+
+                  except (ValueError, IndexError):
+                      return None
+
+              current_major = major(current)
+              latest_major = major(latest)
+
+              if (
+                  current_major is not None
+                  and latest_major is not None
+                  and latest_major > current_major
+              ):
+                  major_updates.append({
+                      "name": name,
+                      "current": current,
+                      "wanted": wanted,
+                      "latest": latest
+                  })
+
+          # --------------------------------------------------------
+          # NO MAJOR UPDATES
+          # --------------------------------------------------------
+
+          if not major_updates:
+              print("No major dependency updates found.")
+              raise SystemExit(0)
+
+          # --------------------------------------------------------
+          # BUILD SLACK MESSAGE
+          # --------------------------------------------------------
+
+          lines = [
+              "📋 *Monthly Major Dependency Review*",
+              "",
+              f"*Repository:* {os.environ['GITHUB_REPOSITORY']}",
+              f"*Major updates available:* {len(major_updates)}",
+              ""
+          ]
+
+          for item in major_updates:
+
+              lines.append(
+                  f"• *{item['name']}* "
+                  f"`{item['current']}` → `{item['latest']}`"
+              )
+
+              if item["wanted"]:
+                  lines.append(
+                      f"  Compatible version: `{item['wanted']}`"
+                  )
+
+              lines.append("")
+
+          lines.extend([
+              "🔎 *Action:* Review these major updates manually.",
+              "",
+              f"<{os.environ['GITHUB_SERVER_URL']}/"
+              f"{os.environ['GITHUB_REPOSITORY']}/"
+              f"actions/runs/{os.environ['GITHUB_RUN_ID']}|"
+              "View workflow>"
+          ])
+
+          # --------------------------------------------------------
+          # SEND TO SLACK
+          # --------------------------------------------------------
+
+          payload = json.dumps({
+              "text": "\n".join(lines)
+          }).encode("utf-8")
+
+          request = urllib.request.Request(
+              os.environ["SLACK_WEBHOOK_URL"],
+              data=payload,
+              headers={
+                  "Content-Type": "application/json"
+              },
+              method="POST"
+          )
+
+          with urllib.request.urlopen(request) as response:
+
+              if response.status < 200 or response.status >= 300:
+                  raise RuntimeError(
+                      f"Slack returned HTTP {response.status}"
+                  )
+
+          print(
+              f"Sent report containing "
+              f"{len(major_updates)} major update(s)."
+          )
+          PY
