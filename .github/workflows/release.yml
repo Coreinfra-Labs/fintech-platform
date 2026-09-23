@@ -304,7 +304,306 @@ jobs:
           echo "Docker image build completed."
 
       # ============================================================
-      # 14. DOCKER IMAGE PUSH
+      # 14. TRIVY IMAGE SCAN
+      # ============================================================
+
+      - name: Scan Docker Image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.ECR_REGISTRY }}/${{ env.SERVICE }}:${{ env.IMAGE_TAG }}
+          format: json
+          output: trivy-image-results.json
+          severity: CRITICAL,HIGH,MEDIUM,LOW
+          ignore-unfixed: false
+          exit-code: '0'
+
+      # ============================================================
+      # 15. EVALUATE SECURITY POLICY
+      # ============================================================
+
+      - name: Evaluate Security Policy
+        id: security-gate
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # ------------------------------------------------------------
+          # Count vulnerabilities by severity
+          # ------------------------------------------------------------
+
+          CRITICAL=$(jq '[.. | objects | select(.Severity? == "CRITICAL")] | length' trivy-image-results.json)
+
+          HIGH=$(jq '[.. | objects | select(.Severity? == "HIGH")] | length' trivy-image-results.json)
+
+          MEDIUM=$(jq '[.. | objects | select(.Severity? == "MEDIUM")] | length' trivy-image-results.json)
+
+          LOW=$(jq '[.. | objects | select(.Severity? == "LOW")] | length' trivy-image-results.json)
+
+          # ------------------------------------------------------------
+          # Count CRITICAL/HIGH vulnerabilities that have a fix
+          #
+          # Trivy Result objects use FixedVersion when a fix is available.
+          # Empty/null FixedVersion means no fix is currently available.
+          # ------------------------------------------------------------
+
+          CRITICAL_FIXABLE=$(jq '
+            [
+              .. |
+              objects |
+              select(
+                .Severity? == "CRITICAL" and
+                (.FixedVersion? // "") != ""
+              )
+            ] | length
+          ' trivy-image-results.json)
+
+          HIGH_FIXABLE=$(jq '
+            [
+              .. |
+              objects |
+              select(
+                .Severity? == "HIGH" and
+                (.FixedVersion? // "") != ""
+              )
+            ] | length
+          ' trivy-image-results.json)
+
+          # ------------------------------------------------------------
+          # Count CRITICAL/HIGH vulnerabilities with NO fix available
+          # ------------------------------------------------------------
+
+          CRITICAL_UNFIXED=$(jq '
+            [
+              .. |
+              objects |
+              select(
+                .Severity? == "CRITICAL" and
+                (.FixedVersion? // "") == ""
+              )
+            ] | length
+          ' trivy-image-results.json)
+
+          HIGH_UNFIXED=$(jq '
+            [
+              .. |
+              objects |
+              select(
+                .Severity? == "HIGH" and
+                (.FixedVersion? // "") == ""
+              )
+            ] | length
+          ' trivy-image-results.json)
+
+          # ------------------------------------------------------------
+          # SECURITY POLICY
+          #
+          # CRITICAL/HIGH with a fix available = FAIL
+          # CRITICAL/HIGH without a fix       = WARN
+          # MEDIUM                              = WARN
+          # LOW                                 = PASS
+          # ------------------------------------------------------------
+
+          STATUS="PASS"
+          ALERT_TYPE="NONE"
+
+          if [ "$CRITICAL_FIXABLE" -gt 0 ]; then
+
+            STATUS="FAIL"
+            ALERT_TYPE="TRIVY-IMAGE-CRITICAL-FIXABLE"
+
+          elif [ "$HIGH_FIXABLE" -gt 0 ]; then
+
+            STATUS="FAIL"
+            ALERT_TYPE="TRIVY-IMAGE-HIGH-FIXABLE"
+
+          elif [ "$CRITICAL_UNFIXED" -gt 0 ]; then
+
+            STATUS="WARN"
+            ALERT_TYPE="TRIVY-IMAGE-CRITICAL-UNFIXED"
+
+          elif [ "$HIGH_UNFIXED" -gt 0 ]; then
+
+            STATUS="WARN"
+            ALERT_TYPE="TRIVY-IMAGE-HIGH-UNFIXED"
+
+          elif [ "$MEDIUM" -gt 0 ]; then
+
+            STATUS="WARN"
+            ALERT_TYPE="TRIVY-IMAGE-MEDIUM"
+
+          fi
+
+          # ------------------------------------------------------------
+          # GitHub Actions outputs
+          # ------------------------------------------------------------
+
+          echo "critical=$CRITICAL" >> "$GITHUB_OUTPUT"
+          echo "high=$HIGH" >> "$GITHUB_OUTPUT"
+          echo "medium=$MEDIUM" >> "$GITHUB_OUTPUT"
+          echo "low=$LOW" >> "$GITHUB_OUTPUT"
+
+          echo "critical_fixable=$CRITICAL_FIXABLE" >> "$GITHUB_OUTPUT"
+          echo "high_fixable=$HIGH_FIXABLE" >> "$GITHUB_OUTPUT"
+
+          echo "critical_unfixed=$CRITICAL_UNFIXED" >> "$GITHUB_OUTPUT"
+          echo "high_unfixed=$HIGH_UNFIXED" >> "$GITHUB_OUTPUT"
+
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          echo "alert_type=$ALERT_TYPE" >> "$GITHUB_OUTPUT"
+
+          # ------------------------------------------------------------
+          # Security Summary
+          # ------------------------------------------------------------
+
+          echo ""
+          echo "=============================================="
+          echo "TRIVY SECURITY RESULTS"
+          echo "=============================================="
+          echo ""
+          echo "Total Critical       : $CRITICAL"
+          echo "Total High           : $HIGH"
+          echo "Total Medium         : $MEDIUM"
+          echo "Total Low            : $LOW"
+          echo ""
+          echo "Critical Fixable     : $CRITICAL_FIXABLE"
+          echo "High Fixable         : $HIGH_FIXABLE"
+          echo ""
+          echo "Critical Unfixed     : $CRITICAL_UNFIXED"
+          echo "High Unfixed         : $HIGH_UNFIXED"
+          echo ""
+          echo "Security Status      : $STATUS"
+          echo "Alert Type           : $ALERT_TYPE"
+          echo ""
+          echo "=============================================="
+
+      # ============================================================
+      # 16. SEND SLACK ALERT
+      # ============================================================
+
+      - name: Send Security Alert
+        if: |
+          steps.security-gate.outputs.status == 'FAIL' ||
+          steps.security-gate.outputs.status == 'WARN'
+        env:
+          WEBHOOK: ${{ secrets.SECURITY_SLACK_WEBHOOK_URL }}
+
+          STATUS: ${{ steps.security-gate.outputs.status }}
+          ALERT_TYPE: ${{ steps.security-gate.outputs.alert_type }}
+
+          CRITICAL: ${{ steps.security-gate.outputs.critical }}
+          HIGH: ${{ steps.security-gate.outputs.high }}
+          MEDIUM: ${{ steps.security-gate.outputs.medium }}
+          LOW: ${{ steps.security-gate.outputs.low }}
+
+          CRITICAL_FIXABLE: ${{ steps.security-gate.outputs.critical_fixable }}
+          HIGH_FIXABLE: ${{ steps.security-gate.outputs.high_fixable }}
+
+          CRITICAL_UNFIXED: ${{ steps.security-gate.outputs.critical_unfixed }}
+          HIGH_UNFIXED: ${{ steps.security-gate.outputs.high_unfixed }}
+
+          REPOSITORY: ${{ github.repository }}
+          SERVICE: ${{ env.SERVICE }}
+          VERSION: ${{ env.VERSION }}
+          IMAGE_TAG: ${{ env.IMAGE_TAG }}
+
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${WEBHOOK:-}" ]]; then
+            echo "ERROR: SECURITY_SLACK_WEBHOOK_URL is not configured."
+            exit 1
+          fi
+
+          curl --fail-with-body \
+            -X POST \
+            -H "Content-Type: application/json" \
+            --data "{
+              \"text\":\"[TRIVY-IMAGE] Security Findings Detected\",
+              \"blocks\": [
+                {
+                  \"type\":\"header\",
+                  \"text\":{
+                    \"type\":\"plain_text\",
+                    \"text\":\"🚨 [TRIVY-IMAGE] Container Image Scan\"
+                  }
+                },
+                {
+                  \"type\":\"section\",
+                  \"fields\": [
+                    {
+                      \"type\":\"mrkdwn\",
+                      \"text\":\"*Repository:*\\n${REPOSITORY}\"
+                    },
+                    {
+                      \"type\":\"mrkdwn\",
+                      \"text\":\"*Service:*\\n${SERVICE}\"
+                    },
+                    {
+                      \"type\":\"mrkdwn\",
+                      \"text\":\"*Version:*\\n${VERSION}\"
+                    },
+                    {
+                      \"type\":\"mrkdwn\",
+                      \"text\":\"*Image Tag:*\\n${IMAGE_TAG}\"
+                    },
+                    {
+                      \"type\":\"mrkdwn\",
+                      \"text\":\"*Status:*\\n${STATUS}\"
+                    },
+                    {
+                      \"type\":\"mrkdwn\",
+                      \"text\":\"*Alert Type:*\\n${ALERT_TYPE}\"
+                    },
+                    {
+                      \"type\":\"mrkdwn\",
+                      \"text\":\"*Critical:*\\n${CRITICAL}\"
+                    },
+                    {
+                      \"type\":\"mrkdwn\",
+                      \"text\":\"*Critical Fixable:*\\n${CRITICAL_FIXABLE}\"
+                    },
+                    {
+                      \"type\":\"mrkdwn\",
+                      \"text\":\"*Critical Unfixed:*\\n${CRITICAL_UNFIXED}\"
+                    },
+                    {
+                      \"type\":\"mrkdwn\",
+                      \"text\":\"*High:*\\n${HIGH}\"
+                    },
+                    {
+                      \"type\":\"mrkdwn\",
+                      \"text\":\"*High Fixable:*\\n${HIGH_FIXABLE}\"
+                    },
+                    {
+                      \"type\":\"mrkdwn\",
+                      \"text\":\"*High Unfixed:*\\n${HIGH_UNFIXED}\"
+                    },
+                    {
+                      \"type\":\"mrkdwn\",
+                      \"text\":\"*Medium:*\\n${MEDIUM}\"
+                    },
+                    {
+                      \"type\":\"mrkdwn\",
+                      \"text\":\"*Low:*\\n${LOW}\"
+                    }
+                  ]
+                }
+              ]
+            }" \
+            "$WEBHOOK"
+
+      # ============================================================
+      # 17. FAIL SECURITY GATE
+      # ============================================================
+
+      - name: Enforce Security Policy
+        if: steps.security-gate.outputs.status == 'FAIL'
+        run: |
+          echo "Critical or High vulnerabilities detected."
+          exit 1
+
+      # ============================================================
+      # 18. DOCKER IMAGE PUSH
       # ============================================================
 
       - name: Push Docker Image
@@ -322,7 +621,7 @@ jobs:
           echo "Docker image pushed successfully."
 
       # ============================================================
-      # 15. CAPTURE IMMUTABLE IMAGE DIGEST
+      # 19. CAPTURE IMMUTABLE IMAGE DIGEST
       # ============================================================
 
       - name: Capture ECR Image Digest
@@ -361,7 +660,7 @@ jobs:
           echo "=============================================="
 
       # ============================================================
-      # 16. DIGEST VERIFICATION
+      # 20. DIGEST VERIFICATION
       # ============================================================
 
       - name: Verify ECR Image Digest
@@ -387,7 +686,7 @@ jobs:
           echo "Digest: $DIGEST"
 
       # ============================================================
-      # 17. RELEASE ARTIFACT GENERATION
+      # 21. RELEASE ARTIFACT GENERATION
       # ============================================================
 
       - name: Generate Release Artifact
@@ -432,7 +731,7 @@ jobs:
           echo "=============================================="
 
       # ============================================================
-      # 18. RELEASE ARTIFACT UPLOAD
+      # 22. RELEASE ARTIFACT UPLOAD
       # ============================================================
 
       - name: Upload Release Artifact
@@ -443,7 +742,7 @@ jobs:
           retention-days: 90
 
       # ============================================================
-      # 19. RELEASE SUMMARY
+      # 23. RELEASE SUMMARY
       # ============================================================
 
       - name: Release Summary
