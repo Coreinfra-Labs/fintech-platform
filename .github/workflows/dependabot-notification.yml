@@ -1,0 +1,125 @@
+# ================================================================
+# Dependabot PR Notification
+# File: .github/workflows/dependabot-notification.yml
+#It listens for a Dependabot PR being opened and sends a Slack notification
+# ================================================================
+
+name: Dependabot Notification
+
+on:
+
+  # --------------------------------------------------------------
+  # DEPENDABOT OPENS A PR
+  # --------------------------------------------------------------
+
+  pull_request:
+    types:
+      - opened
+
+permissions:
+  pull-requests: read
+
+jobs:
+
+  # ==============================================================
+  # DEPENDABOT PR NOTIFICATION
+  # ==============================================================
+
+  notify:
+    if: github.actor == 'dependabot[bot]'
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ============================================================
+      # 1. SEND SLACK NOTIFICATION
+      # ============================================================
+
+      - name: Send Slack Notification
+        env:
+          WEBHOOK: ${{ secrets.SECURITY_SLACK_WEBHOOK_URL }}
+          REPOSITORY: ${{ github.repository }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          AUTHOR: ${{ github.actor }}
+
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${WEBHOOK:-}" ]]; then
+            echo "ERROR: SECURITY_SLACK_WEBHOOK_URL is not configured."
+            exit 1
+          fi
+
+          curl --fail-with-body \
+            -X POST \
+            -H "Content-Type: application/json" \
+            --data "$(jq -n \
+              --arg repo "$REPOSITORY" \
+              --arg author "$AUTHOR" \
+              --arg title "$PR_TITLE" \
+              --arg url "$PR_URL" \
+              '{
+                text: "📦 [DEPENDABOT] Dependency Update Created",
+
+                blocks: [
+
+                  {
+                    type: "header",
+                    text: {
+                      type: "plain_text",
+                      text: "📦 [DEPENDABOT] Dependency Update Created"
+                    }
+                  },
+
+                  {
+                    type: "section",
+                    fields: [
+
+                      {
+                        type: "mrkdwn",
+                        text: ("*Alert Type:*\nDEPENDABOT")
+                      },
+
+                      {
+                        type: "mrkdwn",
+                        text: ("*Repository:*\n" + $repo)
+                      },
+
+                      {
+                        type: "mrkdwn",
+                        text: ("*Created By:*\n" + $author)
+                      }
+
+                    ]
+                  },
+
+                  {
+                    type: "section",
+                    text: {
+                      type: "mrkdwn",
+                      text: ("*Pull Request:*\n" + $title)
+                    }
+                  },
+
+                  {
+                    type: "actions",
+                    elements: [
+
+                      {
+                        type: "button",
+                        text: {
+                          type: "plain_text",
+                          text: "View PR"
+                        },
+                        url: $url
+                      }
+
+                    ]
+                  }
+
+                ]
+              }')" \
+            "$WEBHOOK"
