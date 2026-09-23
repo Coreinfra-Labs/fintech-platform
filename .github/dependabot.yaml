@@ -1,10 +1,15 @@
+# ================================================================
+# Production-Ready Dependabot Configuration
+# File: .github/dependabot.yml
+# ================================================================
+
 version: 2
 
 updates:
 
-  # ==========================================================
-  # NPM / PNPM DEPENDENCIES
-  # ==========================================================
+  # ==============================================================
+  # 1. NPM / PNPM DEPENDENCIES
+  # ==============================================================
 
   - package-ecosystem: "npm"
     directory: "/"
@@ -15,7 +20,7 @@ updates:
       time: "02:00"
       timezone: "Africa/Lagos"
 
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
 
     labels:
       - "security:automated"
@@ -28,27 +33,29 @@ updates:
     reviewers:
       - "Coreinfra-Labs/security"
 
-    # --------------------------------------------------------
-    # NX
-    # --------------------------------------------------------
+    # ------------------------------------------------------------
+    # BLOCK MAJOR VERSION UPDATES
+    # ------------------------------------------------------------
+
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+
+    # ------------------------------------------------------------
+    # GROUP RELATED PACKAGES
+    # ------------------------------------------------------------
 
     groups:
+
       nx:
         patterns:
           - "@nx/*"
           - "nx"
 
-      # ------------------------------------------------------
-      # ANGULAR
-      # ------------------------------------------------------
-
       angular:
         patterns:
           - "@angular/*"
-
-      # ------------------------------------------------------
-      # REACT
-      # ------------------------------------------------------
 
       react:
         patterns:
@@ -56,18 +63,10 @@ updates:
           - "react-*"
           - "@types/react*"
 
-      # ------------------------------------------------------
-      # TYPESCRIPT
-      # ------------------------------------------------------
-
       typescript:
         patterns:
           - "typescript"
           - "@types/node"
-
-      # ------------------------------------------------------
-      # TESTING
-      # ------------------------------------------------------
 
       testing:
         patterns:
@@ -77,10 +76,6 @@ updates:
           - "@playwright/*"
           - "playwright"
 
-      # ------------------------------------------------------
-      # ESLINT
-      # ------------------------------------------------------
-
       eslint:
         patterns:
           - "eslint"
@@ -88,10 +83,9 @@ updates:
           - "typescript-eslint"
           - "@typescript-eslint/*"
 
-
-  # ==========================================================
-  # GITHUB ACTIONS
-  # ==========================================================
+  # ==============================================================
+  # 2. GITHUB ACTIONS
+  # ==============================================================
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -102,7 +96,7 @@ updates:
       time: "02:30"
       timezone: "Africa/Lagos"
 
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
 
     labels:
       - "security:automated"
@@ -115,7 +109,21 @@ updates:
     reviewers:
       - "Coreinfra-Labs/devsecops"
 
+    # ------------------------------------------------------------
+    # BLOCK MAJOR ACTION CHANGES
+    # ------------------------------------------------------------
+
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+
+    # ------------------------------------------------------------
+    # GROUP GITHUB ACTION UPDATES
+    # ------------------------------------------------------------
+
     groups:
+
       github-actions:
         patterns:
           - "*"
