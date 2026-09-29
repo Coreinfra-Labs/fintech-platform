@@ -2,8 +2,8 @@
 # GLOBAL DEFAULT OWNER
 # ==========================================================
 
-* @Coreinfra-Labs/platform
-
+* @Coreinfra-Labs /platform
+ .github/workflows/ @coreinfra-labs/platform
 
 # ==========================================================
 # BACKEND APPLICATIONS
