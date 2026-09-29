@@ -3,7 +3,7 @@
 # ==========================================================
 
 * @Coreinfra-Labs /platform
- .github/workflows/ @coreinfra-labs/platform
+/ .github/workflows/ @coreinfra-labs/platform
 
 # ==========================================================
 # BACKEND APPLICATIONS
