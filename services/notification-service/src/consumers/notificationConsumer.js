@@ -1,6 +1,6 @@
 const { createLogger, kafkaTopics } = require('fintech-shared-libs');
 const { DLQService } = require('../services/dlqService');
-const axios = require('axios');
+const { getUserContactFromWallet } = require('../services/userWalletService');
 const nodemailer = require('nodemailer');
 const twilio = require('twilio');
 
@@ -21,39 +21,35 @@ const twilioClient = twilio(
   process.env.TWILIO_AUTH_TOKEN
 );
 
-const getUserContact = async (userId) => {
-  try {
-    const userServiceUrl = process.env.USER_SERVICE_URL || 'http://localhost:3001';
-    const response = await axios.get(`${userServiceUrl}/api/user/${userId}`, {
-      timeout: 5000,
-    });
-    return {
-      email: response.data.email,
-      phone: response.data.phone,
-    };
-  } catch (error) {
-    logger.warn(`Failed to fetch user ${userId} contact info: ${error.message}`);
-    return { email: null, phone: null };
-  }
-};
-
-const sendTransactionEmail = async (userEmail, transactionData) => {
+const sendTransactionEmail = async (userEmail, userName, transactionData) => {
   if (!userEmail) {
     logger.warn(`No email for transaction ${transactionData.transactionId}`);
     return false;
   }
 
   try {
+    const userGreeting = userName ? `Hi ${userName},` : 'Hello,';
+    
     const emailContent = `
+      <p>${userGreeting}</p>
       <h2>Transaction Completed</h2>
       <p>Your transaction has been successfully completed.</p>
-      <ul>
-        <li><strong>Transaction ID:</strong> ${transactionData.transactionId}</li>
-        <li><strong>Amount:</strong> ${transactionData.amount}</li>
-        <li><strong>Type:</strong> ${transactionData.type}</li>
-        <li><strong>Status:</strong> ${transactionData.status}</li>
-      </ul>
+      <table style="border-collapse: collapse; margin: 20px 0;">
+        <tr>
+          <td style="border: 1px solid #ddd; padding: 8px;"><strong>Transaction ID:</strong></td>
+          <td style="border: 1px solid #ddd; padding: 8px;">${transactionData.transactionId}</td>
+        </tr>
+        <tr>
+          <td style="border: 1px solid #ddd; padding: 8px;"><strong>Amount:</strong></td>
+          <td style="border: 1px solid #ddd; padding: 8px;">${transactionData.amount}</td>
+        </tr>
+        <tr>
+          <td style="border: 1px solid #ddd; padding: 8px;"><strong>Type:</strong></td>
+          <td style="border: 1px solid #ddd; padding: 8px;">${transactionData.type}</td>
+        </tr>
+      </table>
       <p>If you have any questions, please contact support.</p>
+      <p>Best regards,<br>FinTech Platform Team</p>
     `;
 
     await emailTransporter.sendMail({
@@ -71,15 +67,16 @@ const sendTransactionEmail = async (userEmail, transactionData) => {
   }
 };
 
-const sendTransactionSMS = async (userPhone, transactionData) => {
+const sendTransactionSMS = async (userPhone, userName, transactionData) => {
   if (!userPhone || !process.env.TWILIO_PHONE) {
     logger.warn(`No phone or Twilio not configured for transaction ${transactionData.transactionId}`);
     return false;
   }
 
   try {
-    const message = `Your ${transactionData.type} of ${transactionData.amount} has been ${transactionData.status}. ` +
-      `Ref: ${transactionData.transactionId}`;
+    const userGreeting = userName ? `${userName},` : '';
+    const message = `${userGreeting} Your ${transactionData.type} of ${transactionData.amount} has been ${transactionData.status}. ` +
+      `Ref: ${transactionData.transactionId}. Contact support if needed.`;
 
     await twilioClient.messages.create({
       body: message,
@@ -111,12 +108,12 @@ const startNotificationConsumer = async (kafkaService) => {
         return;
       }
 
-      const userContact = await getUserContact(sourceWalletId);
+      // Fetch user contact from wallet ID
+      const userContact = await getUserContactFromWallet(sourceWalletId);
 
       if (!userContact.email && !userContact.phone) {
-        logger.warn(`No contact info available for transaction ${transactionId}`);
+        logger.warn(`No contact info available for transaction ${transactionId} from wallet ${sourceWalletId}`);
         
-        // Send to DLQ
         await dlqService.sendToDLQ(
           kafkaTopics.TOPICS.NOTIFICATION_DLQ,
           data,
@@ -139,8 +136,8 @@ const startNotificationConsumer = async (kafkaService) => {
       };
 
       const results = await Promise.allSettled([
-        userContact.email ? sendTransactionEmail(userContact.email, notificationData) : Promise.resolve(false),
-        userContact.phone ? sendTransactionSMS(userContact.phone, notificationData) : Promise.resolve(false),
+        userContact.email ? sendTransactionEmail(userContact.email, userContact.name, notificationData) : Promise.resolve(false),
+        userContact.phone ? sendTransactionSMS(userContact.phone, userContact.name, notificationData) : Promise.resolve(false),
       ]);
 
       const emailSent = results[0].status === 'fulfilled' && results[0].value;
@@ -154,7 +151,6 @@ const startNotificationConsumer = async (kafkaService) => {
       } else {
         logger.warn(`Failed to send notifications for transaction ${transactionId}`);
         
-        // Send to DLQ
         await dlqService.sendToDLQ(
           kafkaTopics.TOPICS.NOTIFICATION_DLQ,
           data,
@@ -170,7 +166,6 @@ const startNotificationConsumer = async (kafkaService) => {
     } catch (error) {
       logger.error(`Notification consumer error: ${error.message}`, error);
       
-      // Send to DLQ
       if (data && data.transactionId) {
         await dlqService.sendToDLQ(
           kafkaTopics.TOPICS.NOTIFICATION_DLQ,
