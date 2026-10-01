@@ -1,17 +1,18 @@
 const { Transaction } = require('../models');
 const { createLogger, kafkaTopics } = require('fintech-shared-libs');
+const { DLQService } = require('../services/dlqService');
 const axios = require('axios');
 
 const logger = createLogger('Transaction-Consumer');
 
-/**
- * Ledger service URL from environment or null if not configured.
- * If not configured, transactions are marked as PENDING but not settled.
- * This is a limitation that should be addressed by implementing a real ledger service.
- */
 const LEDGER_SERVICE_URL = process.env.LEDGER_SERVICE_URL || null;
+const MAX_RETRIES = parseInt(process.env.MAX_RETRIES || '3', 10);
+
+let dlqService = null;
 
 const startTransactionConsumer = async (kafkaService) => {
+  dlqService = new DLQService(kafkaService);
+
   await kafkaService.subscribeToTopic(kafkaTopics.TOPICS.TRANSACTIONS, async (data) => {
     try {
       logger.info(`Processing transaction: ${data.transactionId}`);
@@ -40,6 +41,20 @@ const startTransactionConsumer = async (kafkaService) => {
           ledgerRecordingSucceeded = true;
         } catch (error) {
           logger.error(`Ledger service error: ${error.message}`);
+          
+          // Send to DLQ for retry
+          await dlqService.sendToDLQ(
+            kafkaTopics.TOPICS.TRANSACTION_FAILED_DLQ,
+            data,
+            error,
+            {
+              originalTopic: kafkaTopics.TOPICS.TRANSACTIONS,
+              reason: 'Ledger recording failed',
+              retryCount: 0,
+              maxRetries: MAX_RETRIES,
+            }
+          );
+
           await transaction.update({
             status: 'FAILED',
             failedReason: `Ledger recording failed: ${error.message}`,
@@ -47,7 +62,6 @@ const startTransactionConsumer = async (kafkaService) => {
           return;
         }
       } else {
-        // Ledger service not configured
         logger.warn(
           `LEDGER_SERVICE_URL not configured; transaction ${transaction.id} will not be settled. ` +
           `Set LEDGER_SERVICE_URL environment variable to enable ledger integration.`
@@ -76,6 +90,21 @@ const startTransactionConsumer = async (kafkaService) => {
       }
     } catch (error) {
       logger.error(`Transaction processing error: ${error.message}`, error);
+      
+      // Send unhandled errors to DLQ
+      if (data && data.transactionId) {
+        await dlqService.sendToDLQ(
+          kafkaTopics.TOPICS.TRANSACTION_FAILED_DLQ,
+          data,
+          error,
+          {
+            originalTopic: kafkaTopics.TOPICS.TRANSACTIONS,
+            reason: 'Unhandled error in transaction consumer',
+            retryCount: 0,
+            maxRetries: MAX_RETRIES,
+          }
+        );
+      }
     }
   });
 };
