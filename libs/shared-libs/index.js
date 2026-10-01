@@ -9,6 +9,9 @@ const { rateLimitMiddleware } = require('./middleware/rateLimit');
 // Services
 const { KafkaService } = require('./services/kafka');
 
+// Constants
+const kafkaTopics = require('./constants/kafkaTopics');
+
 module.exports = {
   // Utils
   createLogger,
@@ -20,4 +23,7 @@ module.exports = {
   
   // Services
   KafkaService,
+  
+  // Constants
+  kafkaTopics,
 };
