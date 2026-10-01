@@ -12,6 +12,9 @@ const { KafkaService } = require('./services/kafka');
 // Constants
 const kafkaTopics = require('./constants/kafkaTopics');
 
+// Validators
+const { validateMessage } = require('./validators/kafkaSchemas');
+
 module.exports = {
   // Utils
   createLogger,
@@ -26,4 +29,7 @@ module.exports = {
   
   // Constants
   kafkaTopics,
+  
+  // Validators
+  validateMessage,
 };
