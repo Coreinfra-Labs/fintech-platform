@@ -3,6 +3,7 @@
   "name": "payment-service",
   "sourceRoot": "services/payment-service/src",
   "projectType": "application",
+  "tags": ["type:service", "scope:backend"],
   "targets": {
     "serve": {
       "executor": "nx:run-commands",
@@ -21,14 +22,14 @@
     "build": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "echo \"No build step required\""
+        "command": "echo \"No build step required for Node.js service\""
       }
     },
     "lint": {
       "executor": "nx:run-commands",
-      "cache":true,
+      "cache": true,
       "options": {
-        "command": "eslint src",
+        "command": "eslint src --ext .js,.ts",
         "cwd": "services/payment-service"
       }
     },
@@ -36,7 +37,15 @@
       "executor": "nx:run-commands",
       "cache": true,
       "options": {
-        "command": "jest",
+        "command": "jest --forceExit",
+        "cwd": "services/payment-service"
+      }
+    },
+    "test-ci": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "options": {
+        "command": "jest --forceExit --ci --coverage",
         "cwd": "services/payment-service"
       }
     }
