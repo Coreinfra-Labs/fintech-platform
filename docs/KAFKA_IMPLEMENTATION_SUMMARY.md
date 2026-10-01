@@ -179,4 +179,202 @@ docker exec kafka kafka-consumer-groups \
   --group transaction-service-group \
   --describe
 
+
+Kafka Consumers
+
+The system uses Kafka topics to process transactions asynchronously across multiple services.
+
+Transaction Service
+
+Role: Processes transactions, calls the Ledger Service for settlement, and publishes a completion event.
+
+Consumes messages from the transactions topic.
+
+Updates the transaction status to PROCESSING.
+
+Calls the Ledger Service to record ledger entries.
+
+Updates the transaction status to COMPLETED.
+
+Publishes a transaction-completed event.
+
+Fraud Service
+
+Role: Evaluates transactions for potential fraud.
+
+Consumes messages from the transactions topic.
+
+Evaluates configured fraud rules.
+
+Calculates a risk score.
+
+Creates a FraudAlert when the transaction is considered high-risk.
+
+transaction-completed Topic
+Producer
+
+The transaction-service publishes to this topic after successful ledger settlement.
+
+Event Payload
+{
+  "transactionId": "uuid",
+  "status": "COMPLETED",
+  "amount": 1000,
+  "type": "TRANSFER",
+  "sourceWalletId": "uuid",
+  "destinationWalletId": "uuid"
+}
+
+Consumer
+
+notification-service
+
+The notification service:
+
+Consumes transaction-completed events.
+
+Fetches the user's contact information.
+
+Sends email and SMS notifications.
+
+End-to-End Transaction Flow
+
+The complete transaction flow is:
+
+POST /api/transaction/create
+Yes
+No
+Client
+Transaction Service
+Create TransactionStatus: PENDING
+Publish to transactions topic
+Transaction Service Consumer
+Fraud Service Consumer
+Update Status to PROCESSING
+Call Ledger Service
+Update Status to COMPLETED
+Publish transaction-completed
+Evaluate Fraud Rules
+Risk Score >= 50?
+Create FraudAlert
+No Alert
+Notification Service Consumer
+Fetch User Contact Info
+Send Email + SMS
+Step-by-Step Flow
+
+The client calls POST /api/transaction/create.
+
+The transaction-service creates a transaction with status PENDING.
+
+The transaction is published to the transactions Kafka topic.
+
+The transaction is processed in parallel:
+
+Transaction Service Consumer
+
+Updates the status to PROCESSING.
+
+Calls LEDGER_SERVICE_URL to record ledger entries.
+
+Updates the status to COMPLETED.
+
+Publishes an event to transaction-completed.
+
+Fraud Service Consumer
+
+Evaluates the transaction against fraud rules.
+
+Calculates the fraud risk score.
+
+Creates a FraudAlert if the risk score is 50 or higher.
+
+The notification-service consumes the transaction-completed event.
+
+The notification service fetches the user's contact information.
+
+Email and SMS notifications are sent to the user.
+
+Environment Configuration
+Transaction Service
+# Ledger service integration
+LEDGER_SERVICE_URL=http://ledger-service:3005/api/ledger
+
+
+Note: If LEDGER_SERVICE_URL is not configured, transactions will be marked as COMPLETED without ledger settlement. This fallback is intended for development and testing environments.
+
+Fraud Service
+# Amount threshold for high-amount transactions
+FRAUD_THRESHOLD=500000
+
+# Risk score threshold for creating a fraud alert
+HIGH_RISK_THRESHOLD=50
+
+Fraud Rules
+
+The fraud service evaluates transactions using the following rules:
+
+Rule	Condition	Risk Score
+High-amount transaction	amount > FRAUD_THRESHOLD	+40
+Unusual transaction time	Between 2 AM and 5 AM	+20
+Multiple recent alerts	Same wallet has multiple recent alerts	+30
+
+A FraudAlert is created when the total risk score is greater than or equal to HIGH_RISK_THRESHOLD.
+
+Example:
+
+High amount       +40
+Unusual time      +20
+---------------------
+Total risk score  60
+
+
+Since 60 >= 50, a fraud alert will be created.
+
+Notification Service
+
+Configure the notification service using the following environment variables:
+
+EMAIL_USER=noreply@fintech.com
+EMAIL_PASSWORD=your-app-password
+
+TWILIO_ACCOUNT_SID=your-sid
+TWILIO_AUTH_TOKEN=your-token
+TWILIO_PHONE=+1234567890
+
+USER_SERVICE_URL=http://user-service:3001
+
+
+Security: Never commit real credentials, passwords, API keys, or authentication tokens to the repository. Use environment variables or a secrets manager in production.
+
+Graceful Shutdown
+
+All services that implement Kafka consumers support graceful shutdown.
+
+You can send a SIGTERM signal to a running service:
+
+kill -TERM <pid>
+
+
+Or stop the service using Ctrl+C, which sends SIGINT in most terminal environments.
+
+Shutdown Sequence
+
+When a shutdown signal is received, the service will:
+
+Stop accepting new HTTP requests.
+
+Disconnect the Kafka producer and consumer.
+
+Complete the shutdown process.
+
+Exit cleanly.
+
+This helps prevent partially processed messages and allows Kafka consumers and producers to close their connections safely.
+
+
+
+
+
+
 ## Kafka Topics & Consumer Groups
