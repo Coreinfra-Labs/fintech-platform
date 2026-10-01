@@ -16,6 +16,11 @@
     "skipLibCheck": true,
     "strict": true,
     "target": "es2022",
-    "customConditions": ["fintech-platform"]
+    "customConditions": ["fintech-platform"],
+    "paths": {
+      "fintech-shared-libs": ["libs/shared-libs/index.js"],
+      "fintech-shared-libs/*": ["libs/shared-libs/*"]
+    }
   }
 }
+
