@@ -126,4 +126,57 @@ This implementation refactors the fintech platform's Kafka event architecture to
 
 ## Architecture After Implementation
 
-### Kafka Topics & Consumer Groups
+
+Testing
+Unit Tests
+
+Run the unit tests for each service and the shared library:
+
+Transaction Service
+cd services/transaction-service
+npm test
+
+Fraud Service
+cd services/fraud-service
+npm test
+
+Notification Service
+cd services/notification-service
+npm test
+
+Shared Library
+cd libs/shared-libs
+npm test
+
+Integration Tests
+
+Integration tests require Docker Compose to be running.
+
+Start the services:
+
+docker-compose up
+
+
+Then run the integration tests:
+
+npm test -- --integration
+
+Monitoring
+Kafka UI
+
+You can monitor Kafka topics and messages using Kafka UI.
+
+Once the services are running, open:
+
+http://localhost:8080
+
+Check Consumer Lag
+
+To check consumer lag for the transaction service, run:
+
+docker exec kafka kafka-consumer-groups \
+  --bootstrap-server localhost:9092 \
+  --group transaction-service-group \
+  --describe
+
+## Kafka Topics & Consumer Groups
