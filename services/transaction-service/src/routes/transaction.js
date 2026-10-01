@@ -2,11 +2,21 @@ const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const Joi = require('joi');
 const { Transaction } = require('../models');
-const { createLogger, KafkaService } = require('fintech-shared-libs');
+const { createLogger, kafkaTopics } = require('fintech-shared-libs');
 
 const router = express.Router();
 const logger = createLogger('Transaction-Routes');
-const kafkaService = new KafkaService('transaction-service', 'transaction-service-group');
+
+// Kafka service injected via middleware/app context (see index.js)
+let kafkaService = null;
+
+/**
+ * Inject Kafka service into routes.
+ * Called from index.js after Kafka is initialized.
+ */
+const setKafkaService = (service) => {
+  kafkaService = service;
+};
 
 const transactionSchema = Joi.object({
   sourceWalletId: Joi.string().uuid().required(),
@@ -57,16 +67,20 @@ router.post('/create', async (req, res) => {
       },
     });
 
-    // Publish event to Kafka
-    await kafkaService.publishEvent('transactions', {
-      transactionId: transaction.id,
-      type: transaction.type,
-      amount: transaction.amount,
-      sourceWalletId: transaction.sourceWalletId,
-      destinationWalletId: transaction.destinationWalletId,
-      status: 'PENDING',
-      timestamp: new Date(),
-    });
+    // Publish event to Kafka using injected service
+    if (kafkaService) {
+      await kafkaService.publishEvent(kafkaTopics.TOPICS.TRANSACTIONS, {
+        transactionId: transaction.id,
+        type: transaction.type,
+        amount: transaction.amount,
+        sourceWalletId: transaction.sourceWalletId,
+        destinationWalletId: transaction.destinationWalletId,
+        status: 'PENDING',
+        timestamp: new Date(),
+      });
+    } else {
+      logger.warn('Kafka service not initialized; transaction event not published');
+    }
 
     logger.info(`Transaction created: ${transaction.id}`);
 
@@ -129,3 +143,4 @@ router.get('/wallet/:walletId', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.setKafkaService = setKafkaService;
