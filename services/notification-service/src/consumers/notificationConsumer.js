@@ -1,14 +1,13 @@
 const { createLogger, kafkaTopics } = require('fintech-shared-libs');
+const { DLQService } = require('../services/dlqService');
 const axios = require('axios');
 const nodemailer = require('nodemailer');
 const twilio = require('twilio');
 
 const logger = createLogger('Notification-Consumer');
 
-/**
- * Setup email transporter.
- * Uses Gmail by default; override with environment variables for other providers.
- */
+const MAX_RETRIES = parseInt(process.env.MAX_RETRIES || '3', 10);
+
 const emailTransporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
@@ -17,19 +16,11 @@ const emailTransporter = nodemailer.createTransport({
   },
 });
 
-/**
- * Setup Twilio client for SMS.
- * Credentials from environment variables.
- */
 const twilioClient = twilio(
   process.env.TWILIO_ACCOUNT_SID,
   process.env.TWILIO_AUTH_TOKEN
 );
 
-/**
- * Fetch user details from user service to get email/phone.
- * Assumes user-service is available at USER_SERVICE_URL.
- */
 const getUserContact = async (userId) => {
   try {
     const userServiceUrl = process.env.USER_SERVICE_URL || 'http://localhost:3001';
@@ -46,9 +37,6 @@ const getUserContact = async (userId) => {
   }
 };
 
-/**
- * Send email notification for transaction completion.
- */
 const sendTransactionEmail = async (userEmail, transactionData) => {
   if (!userEmail) {
     logger.warn(`No email for transaction ${transactionData.transactionId}`);
@@ -83,9 +71,6 @@ const sendTransactionEmail = async (userEmail, transactionData) => {
   }
 };
 
-/**
- * Send SMS notification for transaction completion.
- */
 const sendTransactionSMS = async (userPhone, transactionData) => {
   if (!userPhone || !process.env.TWILIO_PHONE) {
     logger.warn(`No phone or Twilio not configured for transaction ${transactionData.transactionId}`);
@@ -110,7 +95,11 @@ const sendTransactionSMS = async (userPhone, transactionData) => {
   }
 };
 
+let dlqService = null;
+
 const startNotificationConsumer = async (kafkaService) => {
+  dlqService = new DLQService(kafkaService);
+
   await kafkaService.subscribeToTopic(kafkaTopics.TOPICS.TRANSACTION_COMPLETED, async (data) => {
     try {
       const { transactionId, status, amount, type, sourceWalletId } = data;
@@ -122,17 +111,26 @@ const startNotificationConsumer = async (kafkaService) => {
         return;
       }
 
-      // Fetch user contact info
-      // Note: We use sourceWalletId as a proxy; in production, fetch wallet -> user mapping
-      // For now, we assume transaction contains userId or we fetch it from wallet service
       const userContact = await getUserContact(sourceWalletId);
 
       if (!userContact.email && !userContact.phone) {
         logger.warn(`No contact info available for transaction ${transactionId}`);
+        
+        // Send to DLQ
+        await dlqService.sendToDLQ(
+          kafkaTopics.TOPICS.NOTIFICATION_DLQ,
+          data,
+          new Error('No contact info available'),
+          {
+            originalTopic: kafkaTopics.TOPICS.TRANSACTION_COMPLETED,
+            reason: 'No email or phone for user',
+            retryCount: 0,
+            maxRetries: MAX_RETRIES,
+          }
+        );
         return;
       }
 
-      // Prepare notification payload
       const notificationData = {
         transactionId,
         status,
@@ -140,7 +138,6 @@ const startNotificationConsumer = async (kafkaService) => {
         type,
       };
 
-      // Send email and SMS in parallel
       const results = await Promise.allSettled([
         userContact.email ? sendTransactionEmail(userContact.email, notificationData) : Promise.resolve(false),
         userContact.phone ? sendTransactionSMS(userContact.phone, notificationData) : Promise.resolve(false),
@@ -156,9 +153,37 @@ const startNotificationConsumer = async (kafkaService) => {
         );
       } else {
         logger.warn(`Failed to send notifications for transaction ${transactionId}`);
+        
+        // Send to DLQ
+        await dlqService.sendToDLQ(
+          kafkaTopics.TOPICS.NOTIFICATION_DLQ,
+          data,
+          new Error('Failed to send email and SMS'),
+          {
+            originalTopic: kafkaTopics.TOPICS.TRANSACTION_COMPLETED,
+            reason: 'Email and SMS delivery failed',
+            retryCount: 0,
+            maxRetries: MAX_RETRIES,
+          }
+        );
       }
     } catch (error) {
       logger.error(`Notification consumer error: ${error.message}`, error);
+      
+      // Send to DLQ
+      if (data && data.transactionId) {
+        await dlqService.sendToDLQ(
+          kafkaTopics.TOPICS.NOTIFICATION_DLQ,
+          data,
+          error,
+          {
+            originalTopic: kafkaTopics.TOPICS.TRANSACTION_COMPLETED,
+            reason: 'Unhandled error in notification consumer',
+            retryCount: 0,
+            maxRetries: MAX_RETRIES,
+          }
+        );
+      }
     }
   });
 };
