@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const { createLogger, KafkaService, errorHandler } = require('fintech-shared-libs');
+const { createLogger, errorHandler } = require('fintech-shared-libs');
 const { sequelize } = require('./models');
 const walletRoutes = require('./routes/wallet');
 
@@ -20,24 +20,43 @@ app.use(errorHandler);
 
 const PORT = process.env.PORT || 3002;
 
+let server = null;
+
 const startServer = async () => {
   try {
+    // Connect to database
     await sequelize.authenticate();
     logger.info('Database connected');
     await sequelize.sync({ alter: false });
 
-    // Initialize Kafka
-    const kafkaService = new KafkaService('wallet-service');
-    await kafkaService.connect();
-    logger.info('Kafka connected');
-
-    app.listen(PORT, () => {
+    // Start HTTP server
+    server = app.listen(PORT, () => {
       logger.info(`Wallet Service running on port ${PORT}`);
     });
+
+    // Setup graceful shutdown
+    setupGracefulShutdown();
   } catch (error) {
     logger.error('Failed to start server:', error);
     process.exit(1);
   }
+};
+
+const setupGracefulShutdown = () => {
+  const signals = ['SIGTERM', 'SIGINT'];
+  signals.forEach((signal) => {
+    process.on(signal, async () => {
+      logger.info(`Received ${signal}, shutting down gracefully...`);
+      
+      if (server) {
+        server.close(() => {
+          logger.info('HTTP server closed');
+        });
+      }
+
+      process.exit(0);
+    });
+  });
 };
 
 startServer();
