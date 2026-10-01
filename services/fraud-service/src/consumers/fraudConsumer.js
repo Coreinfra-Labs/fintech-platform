@@ -1,21 +1,18 @@
 const { createLogger, kafkaTopics } = require('fintech-shared-libs');
 const { FraudAlert } = require('../models');
+const { DLQService } = require('../services/dlqService');
 
 const logger = createLogger('Fraud-Consumer');
 
-/**
- * Fraud threshold from environment (amount in currency units).
- * Transactions above this amount trigger a risk score increase.
- */
 const FRAUD_THRESHOLD = parseFloat(process.env.FRAUD_THRESHOLD || 500000);
-
-/**
- * High-risk transaction threshold (risk score percentage).
- * Transactions with risk score >= this value are flagged.
- */
 const HIGH_RISK_THRESHOLD = parseFloat(process.env.HIGH_RISK_THRESHOLD || 50);
+const MAX_RETRIES = parseInt(process.env.MAX_RETRIES || '3', 10);
+
+let dlqService = null;
 
 const startFraudConsumer = async (kafkaService) => {
+  dlqService = new DLQService(kafkaService);
+
   await kafkaService.subscribeToTopic(kafkaTopics.TOPICS.TRANSACTIONS, async (data) => {
     try {
       logger.info(`Checking transaction ${data.transactionId} for fraud`);
@@ -28,7 +25,6 @@ const startFraudConsumer = async (kafkaService) => {
         type,
       } = data;
 
-      // Collect fraud rules and scoring
       let riskScore = 0;
       const triggeredRules = [];
 
@@ -48,13 +44,12 @@ const startFraudConsumer = async (kafkaService) => {
       }
 
       // Rule 3: Multiple recent failures for this wallet
-      // (failures indicate possible brute-force attempts)
       const recentFailures = await FraudAlert.count({
         where: {
           sourceWalletId,
           status: 'PENDING',
           createdAt: {
-            [require('sequelize').Op.gte]: new Date(Date.now() - 30 * 60 * 1000), // Last 30 mins
+            [require('sequelize').Op.gte]: new Date(Date.now() - 30 * 60 * 1000),
           },
         },
       });
@@ -75,7 +70,7 @@ const startFraudConsumer = async (kafkaService) => {
             sourceWalletId,
             destinationWalletId,
             riskScore,
-            alertType: triggeredRules[0], // Primary rule
+            alertType: triggeredRules[0],
             details: {
               triggeredRules,
               threshold: FRAUD_THRESHOLD,
@@ -93,6 +88,19 @@ const startFraudConsumer = async (kafkaService) => {
           logger.error(
             `Failed to create fraud alert for transaction ${transactionId}: ${dbError.message}`
           );
+          
+          // Send to DLQ for retry
+          await dlqService.sendToDLQ(
+            kafkaTopics.TOPICS.FRAUD_CHECK_DLQ,
+            data,
+            dbError,
+            {
+              originalTopic: kafkaTopics.TOPICS.TRANSACTIONS,
+              reason: 'Failed to create fraud alert',
+              retryCount: 0,
+              maxRetries: MAX_RETRIES,
+            }
+          );
         }
       } else {
         logger.debug(
@@ -101,6 +109,21 @@ const startFraudConsumer = async (kafkaService) => {
       }
     } catch (error) {
       logger.error(`Fraud consumer error: ${error.message}`, error);
+      
+      // Send to DLQ for retry
+      if (data && data.transactionId) {
+        await dlqService.sendToDLQ(
+          kafkaTopics.TOPICS.FRAUD_CHECK_DLQ,
+          data,
+          error,
+          {
+            originalTopic: kafkaTopics.TOPICS.TRANSACTIONS,
+            reason: 'Unhandled error in fraud consumer',
+            retryCount: 0,
+            maxRetries: MAX_RETRIES,
+          }
+        );
+      }
     }
   });
 };
