@@ -1,11 +1,53 @@
 {
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "name": "ledger-service",
-  "version": "1.0.0",
-  "description": "Ledger and accounting service",
-  "main": "src/index.js",
-  "scripts": {
-    "start": "node src/index.js",
-    "dev": "nodemon src/index.js",
-    "test": "jest --forceExit"
+  "sourceRoot": "services/ledger-service/src",
+  "projectType": "application",
+  "tags": ["type:service", "scope:backend"],
+  "targets": {
+    "serve": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "node src/index.js",
+        "cwd": "services/ledger-service"
+      }
+    },
+    "dev": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "nodemon src/index.js",
+        "cwd": "services/ledger-service"
+      }
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "echo \"No build step required for Node.js service\""
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "options": {
+        "command": "eslint src --ext .js,.ts",
+        "cwd": "services/ledger-service"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "options": {
+        "command": "jest --forceExit",
+        "cwd": "services/ledger-service"
+      }
+    },
+    "test-ci": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "options": {
+        "command": "jest --forceExit --ci --coverage",
+        "cwd": "services/ledger-service"
+      }
+    }
   }
 }
