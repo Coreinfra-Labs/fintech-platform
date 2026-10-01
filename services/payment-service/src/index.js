@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const { createLogger, KafkaService, errorHandler } = require('fintech-shared-libs');
+const { createLogger, errorHandler } = require('fintech-shared-libs');
 const { sequelize } = require('./models');
 const paymentRoutes = require('./routes/payment');
 
@@ -20,9 +20,11 @@ app.use(errorHandler);
 
 const PORT = process.env.PORT || 3004;
 
+let server = null;
+
 const startServer = async () => {
   // Start the API immediately
-  app.listen(PORT, () => {
+  server = app.listen(PORT, () => {
     logger.info(`Payment Service running on port ${PORT}`);
   });
 
@@ -36,14 +38,25 @@ const startServer = async () => {
     logger.error('Database unavailable:', error.message);
   }
 
-  // Initialize Kafka
-  try {
-    const kafkaService = new KafkaService('payment-service');
-    await kafkaService.connect();
-    logger.info('Kafka connected');
-  } catch (error) {
-    logger.error('Kafka unavailable:', error.message);
-  }
+  // Setup graceful shutdown
+  setupGracefulShutdown();
+};
+
+const setupGracefulShutdown = () => {
+  const signals = ['SIGTERM', 'SIGINT'];
+  signals.forEach((signal) => {
+    process.on(signal, async () => {
+      logger.info(`Received ${signal}, shutting down gracefully...`);
+      
+      if (server) {
+        server.close(() => {
+          logger.info('HTTP server closed');
+        });
+      }
+
+      process.exit(0);
+    });
+  });
 };
 
 startServer();
