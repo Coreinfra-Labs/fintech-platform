@@ -2,18 +2,13 @@ const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const Joi = require('joi');
 const { Transaction } = require('../models');
-const { createLogger, kafkaTopics } = require('fintech-shared-libs');
+const { createLogger, kafkaTopics, validateMessage } = require('fintech-shared-libs');
 
 const router = express.Router();
 const logger = createLogger('Transaction-Routes');
 
-// Kafka service injected via middleware/app context (see index.js)
 let kafkaService = null;
 
-/**
- * Inject Kafka service into routes.
- * Called from index.js after Kafka is initialized.
- */
 const setKafkaService = (service) => {
   kafkaService = service;
 };
@@ -31,7 +26,6 @@ const transactionSchema = Joi.object({
   idempotencyKey: Joi.string().required(),
 });
 
-// Create transaction
 router.post('/create', async (req, res) => {
   try {
     const { error, value } = transactionSchema.validate(req.body);
@@ -39,7 +33,6 @@ router.post('/create', async (req, res) => {
       return res.status(400).json({ error: error.details[0].message });
     }
 
-    // Check for idempotency
     const existing = await Transaction.findOne({
       where: { idempotencyKey: value.idempotencyKey },
     });
@@ -67,9 +60,8 @@ router.post('/create', async (req, res) => {
       },
     });
 
-    // Publish event to Kafka using injected service
     if (kafkaService) {
-      await kafkaService.publishEvent(kafkaTopics.TOPICS.TRANSACTIONS, {
+      const messagePayload = {
         transactionId: transaction.id,
         type: transaction.type,
         amount: transaction.amount,
@@ -77,7 +69,16 @@ router.post('/create', async (req, res) => {
         destinationWalletId: transaction.destinationWalletId,
         status: 'PENDING',
         timestamp: new Date(),
-      });
+      };
+
+      // Validate message before publishing
+      const validation = validateMessage('TRANSACTIONS_MESSAGE', messagePayload);
+      if (!validation.valid) {
+        logger.error(`Message validation failed: ${validation.error}`);
+        return res.status(500).json({ error: 'Failed to publish transaction event' });
+      }
+
+      await kafkaService.publishEvent(kafkaTopics.TOPICS.TRANSACTIONS, validation.value);
     } else {
       logger.warn('Kafka service not initialized; transaction event not published');
     }
@@ -99,7 +100,6 @@ router.post('/create', async (req, res) => {
   }
 });
 
-// Get transaction
 router.get('/:transactionId', async (req, res) => {
   try {
     const transaction = await Transaction.findByPk(req.params.transactionId);
@@ -124,7 +124,6 @@ router.get('/:transactionId', async (req, res) => {
   }
 });
 
-// Get wallet transactions
 router.get('/wallet/:walletId', async (req, res) => {
   try {
     const transactions = await Transaction.findAll({
