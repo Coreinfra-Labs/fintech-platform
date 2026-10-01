@@ -374,7 +374,332 @@ This helps prevent partially processed messages and allows Kafka consumers and p
 
 
 
+Kafka Architecture
+Kafka Topics
+transactions
+
+The transactions topic is used to process newly created transactions and perform fraud checks.
+
+transactions
+│
+├── Producer
+│   └── transaction-service
+│
+├── Consumer: transaction-service-group
+│   └── transaction-service
+│       ├── Process transaction
+│       ├── Call ledger service
+│       └── Publish completion event
+│
+└── Consumer: fraud-service-group
+    └── fraud-service
+        ├── Perform fraud check
+        └── Create fraud alerts
+
+transaction-completed
+
+The transaction-completed topic is published after a transaction has been successfully processed and settled.
+
+transaction-completed
+│
+├── Producer
+│   └── transaction-service
+│
+└── Consumer: notification-service-group
+    └── notification-service
+        ├── Fetch user contact information
+        └── Send email/SMS notification
+
+Service Startup Sequence
+Transaction Service
+
+The transaction service starts its database connection, initializes Kafka, starts the HTTP server, and runs the Kafka consumer in the background.
+
+1. Connect to database
+2. Create a single KafkaService instance
+3. Connect to Kafka (producer + consumer)
+4. Inject KafkaService into routes
+5. Start HTTP server (non-blocking)
+6. Start consumer loop (background)
+7. Configure graceful shutdown
+
+Fraud Service
+1. Connect to database
+2. Create a single KafkaService instance
+3. Connect to Kafka
+4. Start HTTP server (non-blocking)
+5. Start consumer loop (background)
+6. Configure graceful shutdown
+
+Notification Service
+1. Create a single KafkaService instance
+2. Connect to Kafka
+3. Start HTTP server (non-blocking)
+4. Start consumer loop (background)
+5. Configure graceful shutdown
+
+Payment & Wallet Services
+
+These services do not use Kafka.
+
+1. Connect to database
+2. Start HTTP server
+3. Configure graceful shutdown
+
+Critical Bug Fixes
+1. Ledger Service Port Error
+Problem
+
+Previously, transaction-service used a hard-coded URL:
+
+http://localhost:3005/api/ledger
 
 
+This could result in requests being sent to the wrong service/port.
 
-## Kafka Topics & Consumer Groups
+Fix
+
+The ledger service URL is now configurable through an environment variable:
+
+LEDGER_SERVICE_URL=http://ledger-service:3005/api/ledger
+
+Impact
+
+Transactions now use the configured ledger service endpoint and fail safely with appropriate logging when the ledger service is unavailable.
+
+2. Unconnected Kafka Producer in Routes
+Problem
+
+A new KafkaService instance was created inside the routes but was never connected to Kafka.
+
+new KafkaService()
+    ↓
+Never connected
+    ↓
+Kafka publish fails
+
+Fix
+
+A single KafkaService instance is created and connected during service startup. The connected instance is then injected into the routes.
+
+Application Startup
+       │
+       ▼
+Create KafkaService
+       │
+       ▼
+Connect to Kafka
+       │
+       ▼
+Inject into Routes
+       │
+       ▼
+POST /api/transaction/create
+       │
+       ▼
+Publish to Kafka
+
+Impact
+
+POST /api/transaction/create can now successfully publish transaction events to Kafka.
+
+3. Blocking Consumer Startup
+Problem
+
+Previously, calling consumer.run() directly could block the HTTP server from starting.
+
+consumer.run()
+     │
+     └── Blocks application startup
+             │
+             └── HTTP server cannot start
+
+Fix
+
+The Kafka consumer is started in the background without blocking HTTP server initialization.
+
+Application Startup
+       │
+       ├── Start HTTP Server
+       │
+       └── Start Kafka Consumer
+             └── Background
+
+Impact
+
+The HTTP server can start and accept requests while the Kafka consumer initializes.
+
+4. Unused Kafka Connections
+Problem
+
+payment-service and wallet-service initialized Kafka connections even though they did not use Kafka.
+
+Fix
+
+Unused Kafka initialization was removed from these services.
+
+Graceful shutdown handling was also added.
+
+Impact
+
+This prevents unnecessary Kafka connections and reduces the risk of resource leaks.
+
+Configuration
+Required Environment Variables
+Transaction Service
+KAFKA_BROKERS=kafka:29092
+
+# Optional
+LEDGER_SERVICE_URL=http://ledger-service:3005/api/ledger
+
+
+LEDGER_SERVICE_URL is optional. Configure it when the ledger service is available.
+
+Fraud Service
+KAFKA_BROKERS=kafka:29092
+
+FRAUD_THRESHOLD=500000
+HIGH_RISK_THRESHOLD=50
+
+Variable	Description
+KAFKA_BROKERS	Kafka broker connection address
+FRAUD_THRESHOLD	Amount above which a high-amount fraud rule is triggered
+HIGH_RISK_THRESHOLD	Minimum risk score required to create a fraud alert
+Notification Service
+KAFKA_BROKERS=kafka:29092
+
+EMAIL_USER=noreply@fintech.com
+EMAIL_PASSWORD=your-app-password
+
+TWILIO_ACCOUNT_SID=your-sid
+TWILIO_AUTH_TOKEN=your-token
+TWILIO_PHONE=+1234567890
+
+USER_SERVICE_URL=http://user-service:3001
+
+Variable	Description
+KAFKA_BROKERS	Kafka broker connection address
+EMAIL_USER	Email sender address
+EMAIL_PASSWORD	Email provider password/app password
+TWILIO_ACCOUNT_SID	Twilio account identifier
+TWILIO_AUTH_TOKEN	Twilio authentication token
+TWILIO_PHONE	Phone number used to send SMS
+USER_SERVICE_URL	URL of the user service
+Testing
+Run Unit Tests
+All Tests
+npm test
+
+Transaction Service
+cd services/transaction-service
+npm test
+
+Fraud Service
+cd services/fraud-service
+npm test
+
+Notification Service
+cd services/notification-service
+npm test
+
+Shared Library
+cd libs/shared-libs
+npm test
+
+Run Integration Tests
+
+Integration tests require Docker Compose.
+
+1. Start the Services
+docker-compose up
+
+2. Run Integration Tests
+npm test -- --integration
+
+Validation Checklist
+
+Use the following checklist to verify the Kafka-based transaction flow.
+
+Kafka
+
+ Kafka broker is running.
+
+ KAFKA_BROKERS is configured correctly.
+
+ transactions topic is available.
+
+ transaction-completed topic is available.
+
+ Transaction service producer connects successfully.
+
+ Transaction service consumer connects successfully.
+
+ Fraud service consumer connects successfully.
+
+ Notification service consumer connects successfully.
+
+Transaction Service
+
+ Database connection succeeds.
+
+ KafkaService is initialized once.
+
+ KafkaService connects successfully.
+
+ KafkaService is injected into transaction routes.
+
+ POST /api/transaction/create publishes to transactions.
+
+ Transaction status changes from PENDING to PROCESSING.
+
+ Ledger service is called when configured.
+
+ Transaction status changes to COMPLETED.
+
+ transaction-completed event is published.
+
+Fraud Service
+
+ Database connection succeeds.
+
+ KafkaService connects successfully.
+
+ transactions events are consumed.
+
+ Fraud rules are evaluated.
+
+ High-risk transactions create FraudAlert records.
+
+Notification Service
+
+ KafkaService connects successfully.
+
+ transaction-completed events are consumed.
+
+ User contact information is retrieved.
+
+ Email notification is sent.
+
+ SMS notification is sent.
+
+Payment & Wallet Services
+
+ Database connections succeed.
+
+ HTTP servers start successfully.
+
+ No unnecessary Kafka connections are created.
+
+ Graceful shutdown works correctly.
+
+Graceful Shutdown
+
+ Services respond correctly to SIGTERM.
+
+ Services respond correctly to SIGINT.
+
+ HTTP server stops accepting new requests.
+
+ Kafka connections are disconnected.
+
+ Services exit cleanly.
