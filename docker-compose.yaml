@@ -317,6 +317,21 @@ services:
       timeout: 5s
       retries: 10
 
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.85.0
+    volumes:
+      - ./opentelemetry-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    command: ["--config", "/etc/otel-collector-config.yaml"]
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8889:8889"   # Prometheus metrics endpoint
+    networks:
+      - fintech-network
+    depends_on:
+      - kafka
+      - zookeeper
+
 volumes:
   postgres_data:
 
