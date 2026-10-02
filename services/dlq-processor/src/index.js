@@ -1,4 +1,5 @@
 const express = require('express');
+require('./otel');
 const { createLogger, KafkaService, kafkaTopics } = require('fintech-shared-libs');
 
 const app = express();
