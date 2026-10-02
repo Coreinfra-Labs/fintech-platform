@@ -67,38 +67,33 @@ class KafkaService {
     throw error;
   }
 }
-  
 async subscribeToTopic(topic, callback) {
-    try {
-      if (!this.consumer) {
-        throw new Error('Consumer not initialized. Provide groupId in constructor.');
+  if (!this.consumer) throw new Error('Consumer not initialized');
+
+  await this.consumer.subscribe({ topic, fromBeginning: false });
+
+  await this.consumer.run({
+    eachMessage: async ({ message }) => {
+      try {
+        const raw = message.value?.toString();
+        if (!raw) return;
+
+        const data = JSON.parse(raw);
+
+        if (!data.messageId) {
+          logger.warn(`Message without messageId from ${topic}`);
+          return;
+        }
+
+        await callback(data);
+      } catch (error) {
+        logger.error(`Error processing message from ${topic}: ${error.message}`);
+        throw error;
       }
-      
-      await this.consumer.subscribe({ topic, fromBeginning: false });
-      
-      // Start consumer in the background without blocking
-      this.consumerRunning = true;
-      this.consumer.run({
-        eachMessage: async ({ topic, partition, message }) => {
-          try {
-            const data = JSON.parse(message.value.toString());
-            await callback(data);
-          } catch (error) {
-            logger.error(`Error processing message from ${topic}: ${error.message}`);
-            // Message is not requeued; log for manual intervention
-          }
-        },
-      }).catch((error) => {
-        logger.error(`Consumer run failed for ${topic}: ${error.message}`);
-        this.consumerRunning = false;
-      });
-      
-      logger.info(`Subscribed to topic: ${topic}`);
-    } catch (error) {
-      logger.error(`Failed to subscribe to ${topic}: ${error.message}`);
-      throw error;
-    }
-  }
+    },
+  });
+}
+  
 }
 
 module.exports = { KafkaService };
