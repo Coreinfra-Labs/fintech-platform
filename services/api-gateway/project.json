@@ -15,7 +15,7 @@
       "executor": "nx:run-commands",
       "options": {
         "command": "nodemon src/index.js",
-        "cwd": "services/payment-service"
+        "cwd": "services/api-gateway"
       }
     },
     "build": {
