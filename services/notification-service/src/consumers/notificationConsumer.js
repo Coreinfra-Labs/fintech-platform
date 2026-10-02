@@ -1,186 +1,169 @@
 const { createLogger, kafkaTopics } = require('fintech-shared-libs');
-const { DLQService } = require('../services/dlqService');
-const { getUserContactFromWallet } = require('../services/userWalletService');
 const nodemailer = require('nodemailer');
-const twilio = require('twilio');
+const axios = require('axios');
 
 const logger = createLogger('Notification-Consumer');
 
-const MAX_RETRIES = parseInt(process.env.MAX_RETRIES || '3', 10);
+let emailTransporter = null;
 
-const emailTransporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER || 'noreply@fintech.com',
-    pass: process.env.EMAIL_PASSWORD || '',
-  },
-});
-
-const twilioClient = twilio(
-  process.env.TWILIO_ACCOUNT_SID,
-  process.env.TWILIO_AUTH_TOKEN
-);
-
-const sendTransactionEmail = async (userEmail, userName, transactionData) => {
-  if (!userEmail) {
-    logger.warn(`No email for transaction ${transactionData.transactionId}`);
-    return false;
-  }
-
-  try {
-    const userGreeting = userName ? `Hi ${userName},` : 'Hello,';
-    
-    const emailContent = `
-      <p>${userGreeting}</p>
-      <h2>Transaction Completed</h2>
-      <p>Your transaction has been successfully completed.</p>
-      <table style="border-collapse: collapse; margin: 20px 0;">
-        <tr>
-          <td style="border: 1px solid #ddd; padding: 8px;"><strong>Transaction ID:</strong></td>
-          <td style="border: 1px solid #ddd; padding: 8px;">${transactionData.transactionId}</td>
-        </tr>
-        <tr>
-          <td style="border: 1px solid #ddd; padding: 8px;"><strong>Amount:</strong></td>
-          <td style="border: 1px solid #ddd; padding: 8px;">${transactionData.amount}</td>
-        </tr>
-        <tr>
-          <td style="border: 1px solid #ddd; padding: 8px;"><strong>Type:</strong></td>
-          <td style="border: 1px solid #ddd; padding: 8px;">${transactionData.type}</td>
-        </tr>
-      </table>
-      <p>If you have any questions, please contact support.</p>
-      <p>Best regards,<br>FinTech Platform Team</p>
-    `;
-
-    await emailTransporter.sendMail({
-      from: process.env.EMAIL_USER || 'noreply@fintech.com',
-      to: userEmail,
-      subject: `Transaction Confirmation: ${transactionData.transactionId}`,
-      html: emailContent,
+const initializeEmailTransporter = () => {
+  if (!emailTransporter && process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) {
+    emailTransporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASSWORD,
+      },
     });
-
-    logger.info(`Email sent to ${userEmail} for transaction ${transactionData.transactionId}`);
-    return true;
-  } catch (error) {
-    logger.error(`Failed to send email to ${userEmail}: ${error.message}`);
-    return false;
   }
 };
-
-const sendTransactionSMS = async (userPhone, userName, transactionData) => {
-  if (!userPhone || !process.env.TWILIO_PHONE) {
-    logger.warn(`No phone or Twilio not configured for transaction ${transactionData.transactionId}`);
-    return false;
-  }
-
-  try {
-    const userGreeting = userName ? `${userName},` : '';
-    const message = `${userGreeting} Your ${transactionData.type} of ${transactionData.amount} has been ${transactionData.status}. ` +
-      `Ref: ${transactionData.transactionId}. Contact support if needed.`;
-
-    await twilioClient.messages.create({
-      body: message,
-      from: process.env.TWILIO_PHONE,
-      to: userPhone,
-    });
-
-    logger.info(`SMS sent to ${userPhone} for transaction ${transactionData.transactionId}`);
-    return true;
-  } catch (error) {
-    logger.error(`Failed to send SMS to ${userPhone}: ${error.message}`);
-    return false;
-  }
-};
-
-let dlqService = null;
 
 const startNotificationConsumer = async (kafkaService) => {
-  dlqService = new DLQService(kafkaService);
+  initializeEmailTransporter();
 
+  // Subscribe to transaction-completed topic
   await kafkaService.subscribeToTopic(kafkaTopics.TOPICS.TRANSACTION_COMPLETED, async (data) => {
     try {
-      const { transactionId, status, amount, type, sourceWalletId } = data;
+      logger.info(`Sending notification for transaction: ${data.transactionId}`);
 
-      logger.info(`Processing notification for transaction ${transactionId} (status: ${status})`);
+      // Get user details
+      let userEmail = null;
+      let userPhone = null;
 
-      if (status !== 'COMPLETED') {
-        logger.debug(`Skipping notification for non-completed transaction ${transactionId}`);
-        return;
+      try {
+        const userResponse = await axios.get(
+          `${process.env.USER_SERVICE_URL}/api/profile/${data.sourceWalletId}`,
+          { timeout: 5000 }
+        );
+        userEmail = userResponse.data?.email;
+        userPhone = userResponse.data?.phone;
+      } catch (error) {
+        logger.warn(`Failed to fetch user details: ${error.message}`);
       }
 
-      // Fetch user contact from wallet ID
-      const userContact = await getUserContactFromWallet(sourceWalletId);
-
-      if (!userContact.email && !userContact.phone) {
-        logger.warn(`No contact info available for transaction ${transactionId} from wallet ${sourceWalletId}`);
-        
-        await dlqService.sendToDLQ(
-          kafkaTopics.TOPICS.NOTIFICATION_DLQ,
-          data,
-          new Error('No contact info available'),
-          {
-            originalTopic: kafkaTopics.TOPICS.TRANSACTION_COMPLETED,
-            reason: 'No email or phone for user',
-            retryCount: 0,
-            maxRetries: MAX_RETRIES,
-          }
-        );
-        return;
+      // Send email notification
+      if (userEmail && emailTransporter) {
+        try {
+          await sendEmailNotification(userEmail, data);
+          logger.info(`Email notification sent to ${userEmail}`);
+        } catch (emailError) {
+          logger.error(`Failed to send email: ${emailError.message}`);
+        }
       }
 
-      const notificationData = {
-        transactionId,
-        status,
-        amount,
-        type,
-      };
-
-      const results = await Promise.allSettled([
-        userContact.email ? sendTransactionEmail(userContact.email, userContact.name, notificationData) : Promise.resolve(false),
-        userContact.phone ? sendTransactionSMS(userContact.phone, userContact.name, notificationData) : Promise.resolve(false),
-      ]);
-
-      const emailSent = results[0].status === 'fulfilled' && results[0].value;
-      const smsSent = results[1].status === 'fulfilled' && results[1].value;
-
-      if (emailSent || smsSent) {
-        logger.info(
-          `Notification sent for transaction ${transactionId} ` +
-          `(email: ${emailSent}, sms: ${smsSent})`
-        );
-      } else {
-        logger.warn(`Failed to send notifications for transaction ${transactionId}`);
-        
-        await dlqService.sendToDLQ(
-          kafkaTopics.TOPICS.NOTIFICATION_DLQ,
-          data,
-          new Error('Failed to send email and SMS'),
-          {
-            originalTopic: kafkaTopics.TOPICS.TRANSACTION_COMPLETED,
-            reason: 'Email and SMS delivery failed',
-            retryCount: 0,
-            maxRetries: MAX_RETRIES,
-          }
-        );
+      // Send SMS notification if Twilio is configured
+      if (userPhone && process.env.TWILIO_ACCOUNT_SID) {
+        try {
+          await sendSMSNotification(userPhone, data);
+          logger.info(`SMS notification sent to ${userPhone}`);
+        } catch (smsError) {
+          logger.error(`Failed to send SMS: ${smsError.message}`);
+        }
       }
+
+      logger.info(`Notification completed for transaction: ${data.transactionId}`);
     } catch (error) {
       logger.error(`Notification consumer error: ${error.message}`, error);
-      
-      if (data && data.transactionId) {
-        await dlqService.sendToDLQ(
-          kafkaTopics.TOPICS.NOTIFICATION_DLQ,
-          data,
-          error,
-          {
-            originalTopic: kafkaTopics.TOPICS.TRANSACTION_COMPLETED,
-            reason: 'Unhandled error in notification consumer',
-            retryCount: 0,
-            maxRetries: MAX_RETRIES,
-          }
+    }
+  });
+
+  // Subscribe to fraud alerts
+  await kafkaService.subscribeToTopic(kafkaTopics.TOPICS.FRAUD_ALERT, async (data) => {
+    try {
+      logger.info(`Sending fraud alert notification for transaction: ${data.transactionId}`);
+
+      // Get user details
+      let userEmail = null;
+
+      try {
+        const userResponse = await axios.get(
+          `${process.env.USER_SERVICE_URL}/api/profile/${data.sourceWalletId}`,
+          { timeout: 5000 }
         );
+        userEmail = userResponse.data?.email;
+      } catch (error) {
+        logger.warn(`Failed to fetch user details for fraud alert: ${error.message}`);
       }
+
+      // Send high-priority fraud alert email
+      if (userEmail && emailTransporter) {
+        try {
+          await sendFraudAlertEmail(userEmail, data);
+          logger.info(`Fraud alert email sent to ${userEmail}`);
+        } catch (emailError) {
+          logger.error(`Failed to send fraud alert email: ${emailError.message}`);
+        }
+      }
+    } catch (error) {
+      logger.error(`Fraud alert notification error: ${error.message}`, error);
     }
   });
 };
+
+async function sendEmailNotification(email, transactionData) {
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject: `Transaction Confirmation - ${transactionData.transactionId}`,
+    html: `
+      <h2>Transaction Completed Successfully</h2>
+      <p>Your transaction has been processed.</p>
+      <ul>
+        <li><strong>Transaction ID:</strong> ${transactionData.transactionId}</li>
+        <li><strong>Amount:</strong> ${transactionData.amount}</li>
+        <li><strong>Type:</strong> ${transactionData.type}</li>
+        <li><strong>Status:</strong> ${transactionData.status}</li>
+        <li><strong>Date:</strong> ${new Date(transactionData.timestamp).toLocaleString()}</li>
+      </ul>
+      <p>Thank you for using our service.</p>
+    `,
+  };
+
+  return emailTransporter.sendMail(mailOptions);
+}
+
+async function sendFraudAlertEmail(email, fraudData) {
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject: `⚠️ URGENT: Suspicious Activity Detected - Transaction ${fraudData.transactionId}`,
+    html: `
+      <h2 style="color: red;">⚠️ Suspicious Activity Alert</h2>
+      <p>We detected unusual activity on your account.</p>
+      <ul>
+        <li><strong>Transaction ID:</strong> ${fraudData.transactionId}</li>
+        <li><strong>Amount:</strong> ${fraudData.amount}</li>
+        <li><strong>Risk Level:</strong> <span style="color: red; font-weight: bold;">${fraudData.riskLevel}</span></li>
+        <li><strong>Fraud Score:</strong> ${fraudData.fraudScore}/100</li>
+        <li><strong>Date:</strong> ${new Date(fraudData.timestamp).toLocaleString()}</li>
+      </ul>
+      <p><strong>Action Required:</strong> Please verify this transaction immediately. If this was not you, contact our support team.</p>
+      <p>Support: support@fintech.com | Phone: +1-800-FINTECH</p>
+    `,
+  };
+
+  return emailTransporter.sendMail(mailOptions);
+}
+
+async function sendSMSNotification(phone, transactionData) {
+  // SMS implementation using Twilio
+  try {
+    const twilio = require('twilio');
+    const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+
+    const message = `Your transaction ${transactionData.transactionId} for ${transactionData.amount} has been completed successfully.`;
+
+    await client.messages.create({
+      body: message,
+      from: process.env.TWILIO_PHONE,
+      to: phone,
+    });
+
+    logger.info(`SMS sent to ${phone}`);
+  } catch (error) {
+    logger.error(`Failed to send SMS via Twilio: ${error.message}`);
+    throw error;
+  }
+}
 
 module.exports = { startNotificationConsumer };

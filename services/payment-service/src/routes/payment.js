@@ -1,116 +1,144 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
+const Joi = require('joi');
 const axios = require('axios');
-const { createLogger } = require('fintech-shared-libs');
+const { Payment } = require('../models');
+const { createLogger, kafkaTopics } = require('fintech-shared-libs');
 
 const router = express.Router();
 const logger = createLogger('Payment-Routes');
 
-const NIBSS_API_URL = process.env.NIBSS_API_URL || 'http://localhost:3007';
+let kafkaService = null;
 
-// Initiate bank transfer
+const setKafkaService = (service) => {
+  kafkaService = service;
+};
+
+const bankTransferSchema = Joi.object({
+  sourceWalletId: Joi.string().uuid().required(),
+  destinationAccountNumber: Joi.string().required(),
+  destinationBankCode: Joi.string().required(),
+  amount: Joi.number().positive().required(),
+  description: Joi.string().allow(null),
+  idempotencyKey: Joi.string().required(),
+});
+
 router.post('/bank-transfer', async (req, res) => {
   try {
-    const {
-      sourceAccountNumber,
-      destinationAccountNumber,
-      destinationBankCode,
-      amount,
-      description,
-      idempotencyKey,
-    } = req.body;
-
-    if (!sourceAccountNumber || !destinationAccountNumber || !amount) {
-      return res.status(400).json({ error: 'Missing required fields' });
+    const { error, value } = bankTransferSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
     }
 
-    const transferReference = `BT-${uuidv4().substring(0, 8)}`;
-
-    try {
-      // Call NIBSS mock API
-      const response = await axios.post(`${NIBSS_API_URL}/api/transfer`, {
-        sourceAccountNumber,
-        destinationAccountNumber,
-        destinationBankCode,
-        amount,
-        reference: transferReference,
-        description,
-      });
-
-      logger.info(`Bank transfer initiated: ${transferReference}`);
-
-      res.status(201).json({
-        message: 'Bank transfer initiated',
-        reference: transferReference,
-        status: response.data.status || 'PENDING',
-        amount,
-      });
-    } catch (nibssError) {
-      logger.error('NIBSS API error:', nibssError.message);
-      res.status(502).json({
-        error: 'Failed to process bank transfer',
-        message: nibssError.response?.data?.message || nibssError.message,
+    // Check for idempotency
+    const existing = await Payment.findOne({
+      where: { idempotencyKey: value.idempotencyKey },
+    });
+    if (existing) {
+      return res.status(200).json({
+        message: 'Payment already processed',
+        payment: existing,
       });
     }
+
+    // Create payment record
+    const payment = await Payment.create({
+      sourceWalletId: value.sourceWalletId,
+      destinationAccountNumber: value.destinationAccountNumber,
+      destinationBankCode: value.destinationBankCode,
+      amount: value.amount,
+      reference: `PAY-${uuidv4().substring(0, 8)}`,
+      idempotencyKey: value.idempotencyKey,
+      description: value.description,
+      status: 'INITIATED',
+    });
+
+    // Publish payment initiated event
+    if (kafkaService) {
+      try {
+        await kafkaService.publishEvent(kafkaTopics.TOPICS.PAYMENT_INITIATED, {
+          paymentId: payment.id,
+          sourceWalletId: value.sourceWalletId,
+          amount: value.amount,
+          destinationAccountNumber: value.destinationAccountNumber,
+          destinationBankCode: value.destinationBankCode,
+          reference: payment.reference,
+          status: 'INITIATED',
+          timestamp: new Date(),
+        });
+        logger.info(`Payment initiated event published: ${payment.id}`);
+      } catch (kafkaError) {
+        logger.error(`Failed to publish payment initiated event: ${kafkaError.message}`);
+      }
+    }
+
+    logger.info(`Payment created: ${payment.id}`);
+
+    res.status(201).json({
+      message: 'Bank transfer initiated',
+      payment: {
+        id: payment.id,
+        reference: payment.reference,
+        amount: payment.amount,
+        status: payment.status,
+      },
+    });
   } catch (error) {
-    logger.error('Bank transfer error:', error);
-    res.status(500).json({ error: 'Failed to initiate bank transfer' });
+    logger.error('Payment creation error:', error);
+    res.status(500).json({ error: 'Failed to create payment' });
   }
 });
 
-// Get transfer status
 router.get('/status/:reference', async (req, res) => {
   try {
-    const { reference } = req.params;
+    const payment = await Payment.findOne({
+      where: { reference: req.params.reference },
+    });
 
-    try {
-      const response = await axios.get(
-        `${NIBSS_API_URL}/api/transfer/${reference}`
-      );
-
-      res.json({
-        reference,
-        status: response.data.status,
-        amount: response.data.amount,
-        timestamp: response.data.timestamp,
-      });
-    } catch (nibssError) {
-      logger.error('NIBSS API error:', nibssError.message);
-      res.status(502).json({ error: 'Failed to fetch transfer status' });
+    if (!payment) {
+      return res.status(404).json({ error: 'Payment not found' });
     }
+
+    res.json({
+      id: payment.id,
+      reference: payment.reference,
+      amount: payment.amount,
+      status: payment.status,
+      destinationAccountNumber: payment.destinationAccountNumber,
+      createdAt: payment.createdAt,
+      updatedAt: payment.updatedAt,
+    });
   } catch (error) {
-    logger.error('Status check error:', error);
-    res.status(500).json({ error: 'Failed to check transfer status' });
+    logger.error('Payment status retrieval error:', error);
+    res.status(500).json({ error: 'Failed to fetch payment status' });
   }
 });
 
-// Validate account number
 router.post('/validate-account', async (req, res) => {
   try {
     const { accountNumber, bankCode } = req.body;
 
     if (!accountNumber || !bankCode) {
-      return res.status(400).json({ error: 'Missing required fields' });
+      return res.status(400).json({ error: 'Account number and bank code are required' });
     }
 
-    try {
-      const response = await axios.post(
-        `${NIBSS_API_URL}/api/validate-account`,
-        { accountNumber, bankCode }
-      );
+    // Call NIBSS mock service to validate account
+    const nibssResponse = await axios.post(
+      `${process.env.NIBSS_API_URL || 'http://nibss-mock:3007'}/api/validate-account`,
+      { accountNumber, bankCode },
+      { timeout: 5000 }
+    );
 
-      res.json({
-        valid: response.data.valid,
-        accountName: response.data.accountName || null,
-      });
-    } catch (nibssError) {
-      logger.error('NIBSS validation error:', nibssError.message);
-      res.status(502).json({ error: 'Failed to validate account' });
-    }
+    res.json({
+      valid: nibssResponse.data.valid,
+      accountName: nibssResponse.data.accountName,
+      bankCode: nibssResponse.data.bankCode,
+    });
   } catch (error) {
-    logger.error('Account validation error:', error);
+    logger.error('Account validation error:', error.message);
     res.status(500).json({ error: 'Failed to validate account' });
   }
 });
 
 module.exports = router;
+module.exports.setKafkaService = setKafkaService;

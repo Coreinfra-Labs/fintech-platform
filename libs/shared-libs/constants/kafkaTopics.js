@@ -8,6 +8,10 @@ module.exports = {
     TRANSACTIONS: 'transactions',
     TRANSACTION_COMPLETED: 'transaction-completed',
     TRANSACTION_FAILED_DLQ: 'transaction-failed-dlq',
+    PAYMENT_INITIATED: 'payment-initiated',
+    PAYMENT_COMPLETED: 'payment-completed',
+    PAYMENT_FAILED_DLQ: 'payment-failed-dlq',
+    FRAUD_ALERT: 'fraud-alert',
     FRAUD_CHECK_DLQ: 'fraud-check-dlq',
     NOTIFICATION_DLQ: 'notification-dlq',
   },
@@ -16,6 +20,7 @@ module.exports = {
     TRANSACTION_SERVICE: 'transaction-service-group',
     FRAUD_SERVICE: 'fraud-service-group',
     NOTIFICATION_SERVICE: 'notification-service-group',
+    PAYMENT_SERVICE: 'payment-service-group',
     DLQ_PROCESSOR: 'dlq-processor-group',
   },
 };
