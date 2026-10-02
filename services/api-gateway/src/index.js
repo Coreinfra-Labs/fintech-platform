@@ -6,6 +6,7 @@ const { createLogger, authMiddleware, rateLimitMiddleware } = require('fintech-s
 
 const app = express();
 const logger = createLogger('API-Gateway');
+let server = null;
 
 app.use(cors());
 app.use(express.json());
@@ -83,8 +84,26 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () => {
+const setupGracefulShutdown = () => {
+  const signals = ['SIGTERM', 'SIGINT'];
+  signals.forEach((signal) => {
+    process.on(signal, async () => {
+      logger.info(`Received ${signal}, shutting down gracefully...`);
+
+      if (server) {
+        server.close(() => {
+          logger.info('HTTP server closed');
+        });
+      }
+
+      process.exit(0);
+    });
+  });
+};
+
+server = app.listen(PORT, () => {
   logger.info(`API Gateway running on port ${PORT}`);
+  setupGracefulShutdown();
 });
 
 module.exports = app;

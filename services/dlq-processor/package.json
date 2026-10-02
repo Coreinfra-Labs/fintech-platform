@@ -1,0 +1,10 @@
+{
+  "name": "dlq-processor",
+  "version": "1.0.0",
+  "description": "Dead-letter queue processor for fintech platform",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  }
+}

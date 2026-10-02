@@ -14,6 +14,11 @@ services:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - fintech-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fintech_user -d fintech_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # Redis Cache
   redis:
@@ -22,6 +27,11 @@ services:
       - "6379:6379"
     networks:
       - fintech-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # Kafka Message Broker
   kafka:
@@ -39,6 +49,11 @@ services:
       - "9092:9092"
     networks:
       - fintech-network
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/9092' >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
 
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
@@ -48,6 +63,11 @@ services:
       - "2181:2181"
     networks:
       - fintech-network
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc localhost 2181 | grep -q imok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   # Kafka UI
   kafka-ui:
@@ -89,6 +109,11 @@ services:
       - ledger-service
     networks:
       - fintech-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
 
   # User Service
   user-service:
@@ -105,6 +130,11 @@ services:
       - redis
     networks:
       - fintech-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3001/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
 
   # Wallet Service
   wallet-service:
@@ -118,6 +148,11 @@ services:
       - postgres
     networks:
       - fintech-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3002/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
 
   # Transaction Service
   transaction-service:
@@ -136,6 +171,11 @@ services:
       - ledger-service
     networks:
       - fintech-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3003/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
 
   # Ledger Service
   ledger-service:
@@ -150,6 +190,11 @@ services:
       - postgres
     networks:
       - fintech-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3008/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
 
   # Payment Service
   payment-service:
@@ -165,6 +210,11 @@ services:
       - nibss-mock
     networks:
       - fintech-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3004/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
 
   # Fraud Service
   fraud-service:
@@ -183,6 +233,11 @@ services:
       - kafka
     networks:
       - fintech-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3005/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
 
   # Notification Service
   notification-service:
@@ -206,6 +261,29 @@ services:
       - wallet-service
     networks:
       - fintech-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3006/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  # DLQ processor
+  dlq-processor:
+    build: ./services/dlq-processor
+    ports:
+      - "3009:3009"
+    environment:
+      PORT: 3009
+      KAFKA_BROKERS: kafka:29092
+    depends_on:
+      - kafka
+    networks:
+      - fintech-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3009/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
 
   # NIBSS Mock Service
   nibss-mock:
@@ -216,6 +294,11 @@ services:
       PORT: 3007
     networks:
       - fintech-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3007/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
 
   # React Frontend
   web:
@@ -228,6 +311,11 @@ services:
       - api-gateway
     networks:
       - fintech-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
 
 volumes:
   postgres_data:
