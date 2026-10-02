@@ -1,39 +1,55 @@
 
-# Use a supported Node.js LTS version
-FROM node:22-alpine
+# syntax=docker/dockerfile:1
 
-# Set working directory
-WORKDIR /app
+# ─────────────────────────────────────────────
+# Build
+# ─────────────────────────────────────────────
+FROM node:22-alpine AS build
 
-# Copy dependency files first for better Docker layer caching
-COPY services/wallet-service/package.json ./
-COPY services/wallet-service/package-lock.json ./
+WORKDIR /build
 
-# Copy shared library if wallet-service depends on it
+# Dependencies
+COPY services/wallet-service/package*.json ./
+RUN npm ci
+
+# Source
+COPY services/wallet-service/src ./src
 COPY libs/shared-libs ./libs/shared-libs
 
-# Install exactly what's in the lockfile
-RUN npm ci --omit=dev
+# Bundle → single production artifact
+RUN npx esbuild src/index.js \
+    --bundle \
+    --platform=node \
+    --target=node22 \
+    --outfile=dist/wallet-service.js
 
-# Copy application source
-COPY services/wallet-service/src ./src
 
-# Run as the non-root Node user
+# ─────────────────────────────────────────────
+# Runtime
+# ─────────────────────────────────────────────
+FROM node:22-alpine AS runtime
+
+WORKDIR /app
+
+# Single application artifact
+COPY --from=build /build/dist/wallet-service.js .
+
+# Security: never run as root
 USER node
 
-# Application port
 EXPOSE 3002
 
-# Container health check
-HEALTHCHECK --interval=30s \
-            --timeout=10s \
-            --start-period=10s \
-            --retries=3 \
-            CMD node -e "require('http').get('http://localhost:3002/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) }).on('error', () => process.exit(1))"
+# Health
+HEALTHCHECK \
+    --interval=30s \
+    --timeout=10s \
+    --start-period=10s \
+    --retries=3 \
+    CMD node -e "require('http').get('http://localhost:3002/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
 
-# Start the wallet service
-CMD ["node", "src/index.js"]
-=========
+# Start
+CMD ["node", "wallet-service.js"]
+
 PROCESS
 =========
 1. Give me Linux + Node.js 22
