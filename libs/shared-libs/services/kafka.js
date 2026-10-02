@@ -42,23 +42,33 @@ class KafkaService {
     }
   }
 
-  async publishEvent(topic, message) {
-    try {
-      if (!this.producer) {
-        throw new Error('Producer not initialized. Call connect() first.');
-      }
-      await this.producer.send({
-        topic,
-        messages: [{ value: JSON.stringify(message) }],
-      });
-      logger.info(`Event published to ${topic}`);
-    } catch (error) {
-      logger.error(`Failed to publish event to ${topic}: ${error.message}`);
-      throw error;
-    }
-  }
+ async publishEvent(topic, message, key = null) {
+  try {
+    if (!this.producer) throw new Error('Producer not initialized');
 
-  async subscribeToTopic(topic, callback) {
+    const payload = {
+      messageId: message.messageId || crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      ...message,
+    };
+
+    await this.producer.send({
+      topic,
+      messages: [{
+        key: key || payload.messageId,
+        value: JSON.stringify(payload),
+      }],
+    });
+
+    logger.info(`Event published to ${topic}`, { messageId: payload.messageId });
+    return payload;
+  } catch (error) {
+    logger.error(`Failed to publish event to ${topic}: ${error.message}`);
+    throw error;
+  }
+}
+  
+async subscribeToTopic(topic, callback) {
     try {
       if (!this.consumer) {
         throw new Error('Consumer not initialized. Provide groupId in constructor.');
