@@ -1,4 +1,5 @@
 require('dotenv').config();
+require('./otel');
 const express = require('express');
 const cors = require('cors');
 const { createLogger, KafkaService, errorHandler, kafkaTopics } = require('fintech-shared-libs');
