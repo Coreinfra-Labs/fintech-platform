@@ -22,6 +22,7 @@ const { validateMessage } = require('./validators/kafkaSchemas');
 module.exports = {
   // Utils
   createLogger,
+  getTraceFields,
   
   // Middleware
   errorHandler,
