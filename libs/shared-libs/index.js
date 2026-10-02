@@ -9,6 +9,10 @@ const { rateLimitMiddleware } = require('./middleware/rateLimit');
 // Services
 const { KafkaService } = require('./services/kafka');
 
+// Patterns
+const { OutboxService, InboxService } = require('./patterns/outboxInbox');
+const { DLQRetryPolicy } = require('./patterns/dlqRetryPolicy');
+
 // Constants
 const kafkaTopics = require('./constants/kafkaTopics');
 
@@ -16,20 +20,14 @@ const kafkaTopics = require('./constants/kafkaTopics');
 const { validateMessage } = require('./validators/kafkaSchemas');
 
 module.exports = {
-  // Utils
   createLogger,
-  
-  // Middleware
   errorHandler,
   authMiddleware,
   rateLimitMiddleware,
-  
-  // Services
   KafkaService,
-  
-  // Constants
+  OutboxService,
+  InboxService,
+  DLQRetryPolicy,
   kafkaTopics,
-  
-  // Validators
   validateMessage,
 };
