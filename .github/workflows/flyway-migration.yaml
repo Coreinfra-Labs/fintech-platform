@@ -1,0 +1,87 @@
+name: Flyway Database Migration
+
+on:
+  pull_request:
+    paths:
+      - "services/**/db/migration/*.sql"
+      - ".github/workflows/flyway-migration.yml"
+      
+ workflow_dispatch:     
+  
+    branches:
+      - develop
+      - main
+
+jobs:
+  flyway-migrate:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: fintech_db
+          POSTGRES_USER: fintech_user
+          POSTGRES_PASSWORD: fintech_secure_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U fintech_user -d fintech_db"
+          --health-cmd-interval=10s
+          --health-cmd-timeout=5s
+          --health-cmd-retries=10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Create service schemas if missing
+        run: |
+          psql postgresql://fintech_user:fintech_secure_password@localhost:5432/fintech_db \
+            -tc "SELECT 1" >/dev/null
+
+          for schema in users wallets transactions fraud ledger payments notifications; do
+            psql postgresql://fintech_user:fintech_secure_password@localhost:5432/fintech_db \
+              -tc "CREATE SCHEMA IF NOT EXISTS ${schema};"
+          done
+
+      - name: Run Flyway migrations per service
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          WORKSPACE_ROOT="$GITHUB_WORKSPACE"
+
+          for dir in \
+            "$WORKSPACE_ROOT/services/user-service/db/migration" \
+            "$WORKSPACE_ROOT/services/wallet-service/db/migration" \
+            "$WORKSPACE_ROOT/services/transaction-service/db/migration" \
+            "$WORKSPACE_ROOT/services/fraud-service/db/migration" \
+            "$WORKSPACE_ROOT/services/ledger-service/db/migration" \
+            "$WORKSPACE_ROOT/services/payment-service/db/migration" \
+            "$WORKSPACE_ROOT/services/notification-service/db/migration"
+          do
+            if [ -d "$dir" ]; then
+              echo "Running Flyway for: $dir"
+              docker run --rm \
+                -v "$WORKSPACE_ROOT:/workspace" \
+                flyway/flyway:10-alpine \
+                -url=jdbc:postgresql://host.docker.internal:5432/fintech_db \
+                -user=fintech_user \
+                -password=fintech_secure_password \
+                -locations="filesystem:/workspace/${dir#$WORKSPACE_ROOT/}" \
+                -baselineOnMigrate=true \
+                -connectRetries=5 \
+                migrate
+            fi
+          done
+
+      - name: Show migration history
+        run: |
+          psql postgresql://fintech_user:fintech_secure_password@localhost:5432/fintech_db \
+            -c "SELECT * FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 20;"
