@@ -1,0 +1,27 @@
+{
+  "root": true,
+  "ignorePatterns": ["**/*"],
+  "plugins": ["@nx"],
+  "overrides": [
+    {
+      "files": ["*.ts", "*.tsx", "*.js", "*.jsx"],
+      "rules": {
+        "@nx/enforce-module-boundaries": [
+          "error",
+          {
+            "enforceBuildableLibDependency": true,
+            "allow": ["@fintech/*"],
+            "depConstraints": [
+              { "sourceTag": "type:app", "onlyDependOnLibsWithTags": ["type:lib", "type:shared"] },
+              { "sourceTag": "type:feature", "onlyDependOnLibsWithTags": ["type:lib", "type:shared"] },
+              { "sourceTag": "domain:auth", "onlyDependOnLibsWithTags": ["domain:auth", "type:shared"] },
+              { "sourceTag": "domain:transaction", "onlyDependOnLibsWithTags": ["domain:transaction", "type:shared"] },
+              { "sourceTag": "domain:wallet", "onlyDependOnLibsWithTags": ["domain:wallet", "type:shared"] },
+              { "sourceTag": "domain:fraud", "onlyDependOnLibsWithTags": ["domain:fraud", "type:shared"] }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
