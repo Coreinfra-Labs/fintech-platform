@@ -20,14 +20,25 @@ const kafkaTopics = require('./constants/kafkaTopics');
 const { validateMessage } = require('./validators/kafkaSchemas');
 
 module.exports = {
+  // Utils
   createLogger,
+  
+  // Middleware
   errorHandler,
   authMiddleware,
   rateLimitMiddleware,
+  
+  // Services
   KafkaService,
+  
+  // Patterns
   OutboxService,
   InboxService,
   DLQRetryPolicy,
+  
+  // Constants
   kafkaTopics,
+  
+  // Validators
   validateMessage,
 };
