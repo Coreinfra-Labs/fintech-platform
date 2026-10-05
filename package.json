@@ -15,7 +15,7 @@
     "@nx/vitest": "23.1.0",
     "@nx/web": "23.1.0",
     "@nx/workspace": "23.1.0",
-    "@playwright/test": "^1.37.0",
+    "@playwright/test": "^1.63.0",
     "@swc/cli": "~0.8.1",
     "@swc/core": "~1.15.5",
     "@swc/helpers": "~0.5.18",
@@ -64,7 +64,7 @@
     "typescript-eslint": "^8.58.0",
     "uuid": "^9.0.1",
     "vite": "^8.0.0",
-    "vitest": "~4.1.0",
+    "vitest": "~4.1.11",
     "winston": "^3.11.0",
     "zustand": "^4.4.1"
   },
