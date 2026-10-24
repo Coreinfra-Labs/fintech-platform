@@ -304,6 +304,7 @@ jobs:
           echo "Docker image build completed."
 
       # ============================================================
+<<<<<<< HEAD
       # 14. TRIVY IMAGE SCAN
       # ============================================================
 
@@ -604,6 +605,9 @@ jobs:
 
       # ============================================================
       # 18. DOCKER IMAGE PUSH
+=======
+      # 14. DOCKER IMAGE PUSH
+>>>>>>> main
       # ============================================================
 
       - name: Push Docker Image
@@ -621,7 +625,11 @@ jobs:
           echo "Docker image pushed successfully."
 
       # ============================================================
+<<<<<<< HEAD
       # 19. CAPTURE IMMUTABLE IMAGE DIGEST
+=======
+      # 15. CAPTURE IMMUTABLE IMAGE DIGEST
+>>>>>>> main
       # ============================================================
 
       - name: Capture ECR Image Digest
@@ -660,7 +668,11 @@ jobs:
           echo "=============================================="
 
       # ============================================================
+<<<<<<< HEAD
       # 20. DIGEST VERIFICATION
+=======
+      # 16. DIGEST VERIFICATION
+>>>>>>> main
       # ============================================================
 
       - name: Verify ECR Image Digest
@@ -686,7 +698,11 @@ jobs:
           echo "Digest: $DIGEST"
 
       # ============================================================
+<<<<<<< HEAD
       # 21. RELEASE ARTIFACT GENERATION
+=======
+      # 17. RELEASE ARTIFACT GENERATION
+>>>>>>> main
       # ============================================================
 
       - name: Generate Release Artifact
@@ -731,7 +747,11 @@ jobs:
           echo "=============================================="
 
       # ============================================================
+<<<<<<< HEAD
       # 22. RELEASE ARTIFACT UPLOAD
+=======
+      # 18. RELEASE ARTIFACT UPLOAD
+>>>>>>> main
       # ============================================================
 
       - name: Upload Release Artifact
@@ -742,7 +762,11 @@ jobs:
           retention-days: 90
 
       # ============================================================
+<<<<<<< HEAD
       # 23. RELEASE SUMMARY
+=======
+      # 19. RELEASE SUMMARY
+>>>>>>> main
       # ============================================================
 
       - name: Release Summary
