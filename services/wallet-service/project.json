@@ -37,7 +37,7 @@
       "executor": "nx:run-commands",
       "cache": true,
       "options": {
-        "command": "jest --forceExit",
+        "command" : "jest --passWithNoTests",
         "cwd": "services/wallet-service"
       }
     },

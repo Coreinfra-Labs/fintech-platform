@@ -14,7 +14,7 @@ router.post('/check', async (req, res) => {
     const { userId, transactionId, amount, transactionType } = req.body;
 
     let riskScore = 0;
-    let alerts = [];
+    const alerts = [];
 
     // Rule 1: High amount check
     if (amount > FRAUD_THRESHOLD) {

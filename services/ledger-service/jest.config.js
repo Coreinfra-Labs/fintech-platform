@@ -1,6 +1,6 @@
+
 module.exports = {
   displayName: 'ledger-service',
-  preset: '../../jest.preset.js',
   testEnvironment: 'node',
   transform: {
     '^.+\\.[tj]sx?$': ['babel-jest', { presets: ['@nx/js/babel'] }],

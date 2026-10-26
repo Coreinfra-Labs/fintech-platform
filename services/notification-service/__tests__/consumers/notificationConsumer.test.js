@@ -44,12 +44,17 @@ describe('Notification Consumer', () => {
       },
     });
 
-    mockKafkaService = {
-      subscribeToTopic: jest.fn((topic, callback) => {
-        consumerCallback = callback;
-        return Promise.resolve();
-      }),
-    };
+ mockKafkaService = {
+  subscribeToTopic: jest.fn((topic, callback) => {
+    if (
+      topic ===
+      require('fintech-shared-libs').kafkaTopics.TOPICS.TRANSACTION_COMPLETED
+    ) {
+      consumerCallback = callback;
+    }
+    return Promise.resolve();
+  }),
+};
 
     axios.get = jest.fn().mockResolvedValue({
       data: {

@@ -6,8 +6,9 @@ const logger = createLogger('Notification-Consumer');
 
 let emailTransporter = null;
 
+
 const initializeEmailTransporter = () => {
-  if (!emailTransporter && process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) {
+  if (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) {
     emailTransporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
@@ -22,8 +23,14 @@ const startNotificationConsumer = async (kafkaService) => {
   initializeEmailTransporter();
 
   // Subscribe to transaction-completed topic
-  await kafkaService.subscribeToTopic(kafkaTopics.TOPICS.TRANSACTION_COMPLETED, async (data) => {
+  await kafkaService.subscribeToTopic(
+  kafkaTopics.TOPICS.TRANSACTION_COMPLETED,
+  async (data) => {
     try {
+      if (data.status !== 'COMPLETED') {
+        return;
+      }
+
       logger.info(`Sending notification for transaction: ${data.transactionId}`);
 
       // Get user details
@@ -32,7 +39,7 @@ const startNotificationConsumer = async (kafkaService) => {
 
       try {
         const userResponse = await axios.get(
-          `${process.env.USER_SERVICE_URL}/api/profile/${data.sourceWalletId}`,
+          `${process.env.USER_SERVICE_URL}/api/user/${data.sourceWalletId}`,
           { timeout: 5000 }
         );
         userEmail = userResponse.data?.email;
@@ -151,7 +158,8 @@ async function sendSMSNotification(phone, transactionData) {
     const twilio = require('twilio');
     const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
-    const message = `Your transaction ${transactionData.transactionId} for ${transactionData.amount} has been completed successfully.`;
+  
+    const message = `Your ${transactionData.type} transaction ${transactionData.transactionId} for ${transactionData.amount} has been completed successfully.`;
 
     await client.messages.create({
       body: message,

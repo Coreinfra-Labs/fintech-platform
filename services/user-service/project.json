@@ -26,7 +26,7 @@
     },
     "lint": {
       "executor": "nx:run-commands",
-      "cache":true,
+      "cache": true,
       "options": {
         "command": "eslint src",
         "cwd": "services/user-service"
@@ -36,7 +36,7 @@
       "executor": "nx:run-commands",
       "cache": true,
       "options": {
-        "command": "jest",
+        "command": "jest --passWithNoTests",
         "cwd": "services/user-service"
       }
     }

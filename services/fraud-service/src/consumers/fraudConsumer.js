@@ -1,90 +1,104 @@
+
 const { createLogger, kafkaTopics } = require('fintech-shared-libs');
-const { Fraud } = require('../models');
+const { FraudAlert } = require('../models');
 
 const logger = createLogger('Fraud-Consumer');
 
-const FRAUD_THRESHOLD = parseInt(process.env.FRAUD_THRESHOLD || '500000', 10);
-const HIGH_RISK_THRESHOLD = parseInt(process.env.HIGH_RISK_THRESHOLD || '50', 10);
+const HIGH_AMOUNT_THRESHOLD = Number(
+  process.env.FRAUD_THRESHOLD || 500000
+);
+const HIGH_RISK_THRESHOLD = Number(
+  process.env.HIGH_RISK_THRESHOLD || 50
+);
 
 const startFraudConsumer = async (kafkaService) => {
-  await kafkaService.subscribeToTopic(kafkaTopics.TOPICS.TRANSACTIONS, async (data) => {
-    try {
-      logger.info(`Checking transaction for fraud: ${data.transactionId}`);
+  await kafkaService.subscribeToTopic(
+    kafkaTopics.TOPICS.TRANSACTIONS,
+    async (data) => {
+      try {
+        logger.info(`Checking transaction for fraud: ${data.transactionId}`);
 
-      // Calculate fraud score based on transaction data
-      const fraudScore = calculateFraudScore(data);
-      const isFraudulent = fraudScore > HIGH_RISK_THRESHOLD;
-      const isLargeTransaction = data.amount > FRAUD_THRESHOLD;
+        const { riskScore, triggeredRules } = await calculateFraudScore(data);
+        const isFraudulent = riskScore > HIGH_RISK_THRESHOLD;
 
-      // Log the fraud check result
-      logger.info(`Fraud check completed for transaction ${data.transactionId}: score=${fraudScore}, isFraudulent=${isFraudulent}`);
+        logger.info(
+          `Fraud check completed for transaction ${data.transactionId}: score=${riskScore}, isFraudulent=${isFraudulent}`
+        );
 
-      // Store fraud check result
-      await Fraud.create({
-        transactionId: data.transactionId,
-        fraudScore,
-        isFraudulent,
-        isLargeTransaction,
-        riskLevel: isFraudulent ? 'HIGH' : isLargeTransaction ? 'MEDIUM' : 'LOW',
-        checkDetails: {
-          amount: data.amount,
-          type: data.type,
-          sourceWalletId: data.sourceWalletId,
-          timestamp: new Date(),
-        },
-      });
+        if (triggeredRules.length === 0) {
+          return;
+        }
 
-      // If high risk, publish fraud alert
-      if (isFraudulent) {
-        logger.error(`HIGH RISK transaction detected: ${data.transactionId}, fraud score: ${fraudScore}`);
-
-        await kafkaService.publishEvent(kafkaTopics.TOPICS.FRAUD_ALERT, {
+        await FraudAlert.create({
           transactionId: data.transactionId,
-          fraudScore,
-          riskLevel: 'HIGH',
-          amount: data.amount,
-          type: data.type,
-          timestamp: new Date(),
+          alertType: triggeredRules[0],
+          riskScore,
+          details: {
+            triggeredRules,
+            amount: data.amount,
+            transactionType: data.transactionType || data.type,
+            timestamp: new Date(),
+          },
         });
-      } else if (isLargeTransaction) {
-        logger.warn(`Large transaction flagged for review: ${data.transactionId}, amount: ${data.amount}`);
+     
+            
+if (
+  isFraudulent &&
+  typeof kafkaService.publishEvent === 'function'
+) {   
+          await kafkaService.publishEvent(
+            kafkaTopics.TOPICS.FRAUD_ALERT,
+            {
+              transactionId: data.transactionId,
+              riskScore,
+              alertType: triggeredRules[0],
+              triggeredRules,
+              amount: data.amount,
+              timestamp: new Date(),
+            }
+          );
+        }
+      } catch (error) {
+        logger.error(`Fraud consumer error: ${error.message}`, error);
       }
-    } catch (error) {
-      logger.error(`Fraud consumer error: ${error.message}`, error);
     }
-  });
+  );
 };
 
-/**
- * Calculate fraud score based on transaction characteristics
- * Score > 50 is considered HIGH RISK
- * Score > 20 is considered MEDIUM RISK
- */
-function calculateFraudScore(transaction) {
-  let score = 0;
+async function calculateFraudScore(transaction)  {
+  let riskScore = 0;
+  const triggeredRules = [];
 
-  // Amount-based scoring
-  if (transaction.amount > 1000000) {
-    score += 30;
-  } else if (transaction.amount > 500000) {
-    score += 20;
-  } else if (transaction.amount > 100000) {
-    score += 10;
+  // High transaction amount: 40 points
+  if (Number(transaction.amount) > HIGH_AMOUNT_THRESHOLD) {
+    riskScore += 40;
+    triggeredRules.push('HIGH_AMOUNT');
   }
 
-  // Transaction type scoring (PAYMENT typically higher risk)
-  if (transaction.type === 'PAYMENT') {
-    score += 15;
-  } else if (transaction.type === 'TRANSFER') {
-    score += 5;
+  // Unusual transaction time: 20 points
+  const timestamp = transaction.timestamp
+    ? new Date(transaction.timestamp)
+    : new Date();
+
+  const hour = timestamp.getHours();
+
+  if (hour < 6 || hour >= 22) {
+    riskScore += 20;
+    triggeredRules.push('UNUSUAL_TIME');
   }
 
-  // Destination scoring (cross-border would add more, but simplified here)
-  if (transaction.destinationBankCode) {
-    score += 5; // External bank transfer
-  }
+  // Multiple recent failures: 30 points
+const recentFailures = await FraudAlert.count();
 
-  return Math.min(score, 100); // Cap at 100
+if (recentFailures > 5) {
+  riskScore += 30;
+  triggeredRules.push('MULTIPLE_FAILURES');
+}
+
+  return {
+    riskScore: Math.min(riskScore, 100),
+    triggeredRules,
+  };
 }
 
 module.exports = { startFraudConsumer };

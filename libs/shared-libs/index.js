@@ -1,5 +1,5 @@
 // Utilities
-const { createLogger } = require('./utils/logger');
+const { createLogger, getTraceFields } = require('./utils/logger');
 
 // Middleware
 const { errorHandler } = require('./middleware/errorHandler');

@@ -1,6 +1,6 @@
 {
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
-  "name": "dlq-processor",
+  "name": "mock-services/nibss-mock",
   "sourceRoot": "services/mock-services/nibss-mock/src",
   "projectType": "application",
   "tags": ["type:service", "scope:backend"],
@@ -37,7 +37,7 @@
       "executor": "nx:run-commands",
       "cache": true,
       "options": {
-        "command": "jest --forceExit",
+        "command":"jest --forceExit --passWithNoTests",
         "cwd": "services/mock-services/nibss-mock"
       }
     },

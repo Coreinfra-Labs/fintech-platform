@@ -19,7 +19,14 @@ const otlpMetricExporter = new OTLPMetricExporter({
 });
 
 const prometheusPort = Number(process.env.PROMETHEUS_METRICS_PORT || 9464);
-const prometheusExporter = new PrometheusExporter({ startServer: true, port: prometheusPort }, () => {});
+const prometheusExporter = new PrometheusExporter(
+  { startServer: true, port: prometheusPort },
+  (err) => {
+    if (err) {
+      console.error('Prometheus exporter error:', err);
+    }
+  }
+);
 const sdk = new NodeSDK({
   resource: new Resource({
     [SemanticResourceAttributes.SERVICE_NAME]: serviceName,

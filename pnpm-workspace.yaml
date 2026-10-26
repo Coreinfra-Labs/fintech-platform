@@ -2,8 +2,10 @@ packages:
   - services/*
   - libs/*
 allowBuilds:
+  '@parcel/watcher': false
   '@swc/core': false
   core-js: false
   core-js-pure: false
   nx: false
+  protobufjs: false
   unrs-resolver: false
