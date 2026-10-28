@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { walletService } from '../services/walletService';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../store/authStore';
@@ -9,12 +9,7 @@ const Wallets = () => {
   const [loading, setLoading] = useState(true);
   const [accountType, setAccountType] = useState('SAVINGS');
 
-  // ✅ Added fetchWallets to dependency array
-  useEffect(() => {
-    fetchWallets();
-  }, [fetchWallets]);
-
-  const fetchWallets = async () => {
+  const fetchWallets = useCallback(async () => {
     try {
       if (user?.id) {
         const data = await walletService.getWallets(user.id);
@@ -25,7 +20,11 @@ const Wallets = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    fetchWallets();
+  }, [fetchWallets]);
 
   const handleCreateWallet = async (e) => {
     e.preventDefault();
