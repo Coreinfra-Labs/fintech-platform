@@ -1,3 +1,4 @@
+
 {
   "name": "fintech-platform",
   "version": "0.0.0",
@@ -73,5 +74,10 @@
   },
   "dependencies": {
     "@opentelemetry/sdk-node": "^0.300.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "eslint": "9.39.5"
+    }
   }
 }
