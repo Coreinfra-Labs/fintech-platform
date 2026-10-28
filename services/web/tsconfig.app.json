@@ -5,7 +5,9 @@
     "tsBuildInfoFile": "dist/tsconfig.app.tsbuildinfo",
     "jsx": "react-jsx",
     "lib": [
-      "dom"
+       "ES2022",
+       "DOM",
+       "DOM.Iterable"
     ],
     "types": [
       "node",

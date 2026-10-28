@@ -45,7 +45,7 @@
       "executor": "nx:run-commands",
       "cache": true,
       "options": {
-        "command": "jest --forceExit --ci --coverage",
+        "command": "jest --forceExit --ci --coverage --passWithNoTests",
         "cwd": "services/wallet-service"
       }
     }

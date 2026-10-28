@@ -18,9 +18,9 @@ jobs:
     name: Security Gate
     needs:
       - nx-ci
-      - sonar
-      - gitleaks
-      - sca-trivy
+      - Security - SonarQube
+      - Gitleaks
+      - Security - SCA
 
     if: always()
 

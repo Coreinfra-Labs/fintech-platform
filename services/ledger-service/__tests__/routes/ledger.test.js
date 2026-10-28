@@ -27,9 +27,9 @@ describe('Ledger Routes', () => {
 
   describe('POST /record', () => {
     it('should create ledger entries for TRANSFER', async () => {
-      const transactionId = 'txn-123';
-      const sourceWalletId = 'wallet-1';
-      const destWalletId = 'wallet-2';
+      const transactionId = '123e4567-e89b-42d3-a456-426614174000';
+      const sourceWalletId = '123e4567-e89b-42d3-a456-426614174001';
+      const destWalletId = '123e4567-e89b-42d3-a456-426614174002';
       const amount = 1000;
 
       LedgerEntry.create = jest.fn().mockResolvedValue({
@@ -55,8 +55,8 @@ describe('Ledger Routes', () => {
     });
 
     it('should create ledger entries for DEPOSIT', async () => {
-      const transactionId = 'txn-deposit';
-      const walletId = 'wallet-1';
+      const transactionId = '123e4567-e89b-42d3-a456-426614174003';
+      const walletId = '123e4567-e89b-42d3-a456-426614174004';
       const amount = 5000;
 
       LedgerEntry.create = jest.fn().mockResolvedValue({
