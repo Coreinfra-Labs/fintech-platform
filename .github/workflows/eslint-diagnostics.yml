@@ -1,0 +1,70 @@
+```yaml
+name: ESLint Diagnostics
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - develop
+  pull_request:
+    branches:
+      - develop
+
+permissions:
+  contents: read
+
+jobs:
+  eslint-diagnostics:
+    name: Diagnose ESLint and Nx
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Read configured Node.js version
+        id: node-version
+        shell: bash
+        run: |
+          if [ -f .nvmrc ]; then
+            NODE_VERSION=$(tr -d '[:space:]' < .nvmrc)
+            echo "version=$NODE_VERSION" >> "$GITHUB_OUTPUT"
+            echo "Using Node.js version from .nvmrc: $NODE_VERSION"
+          elif node -e "process.exit(require('./package.json').engines?.node ? 0 : 1)"; then
+            NODE_VERSION=$(node -p "require('./package.json').engines.node")
+            echo "version=$NODE_VERSION" >> "$GITHUB_OUTPUT"
+            echo "Using Node.js version from package.json engines: $NODE_VERSION"
+          else
+            echo "::error::No Node.js version configured. Add .nvmrc or package.json engines.node before running diagnostics."
+            exit 1
+          fi
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.8.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.node-version.outputs.version }}
+          cache: pnpm
+
+      - name: Show runtime versions
+        run: |
+          node --version
+          pnpm --version
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Check root ESLint version
+        run: pnpm exec eslint --version
+
+      - name: Check web project ESLint version
+        run: pnpm --dir services/web exec eslint --version
+
+      - name: Run web lint
+        run: pnpm nx lint web --skip-nx-cache
+```
