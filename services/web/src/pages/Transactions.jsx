@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { walletService } from '../services/walletService';
 import { transactionService } from '../services/transactionService';
@@ -11,12 +11,16 @@ const Transactions = () => {
   const [wallets, setWallets] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // ✅ Added fetchWallets to dependency array to satisfy ESLint
-  useEffect(() => {
-    fetchWallets();
-  }, [fetchWallets]);
+  const fetchTransactions = useCallback(async (walletId) => {
+    try {
+      const data = await transactionService.getWalletTransactions(walletId);
+      setTransactions(data.transactions || []);
+    } catch (error) {
+      console.error('Failed to fetch transactions:', error);
+    }
+  }, []);
 
-  const fetchWallets = async () => {
+  const fetchWallets = useCallback(async () => {
     try {
       if (user?.id) {
         const data = await walletService.getWallets(user.id);
@@ -31,16 +35,11 @@ const Transactions = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [fetchTransactions, user]);
 
-  const fetchTransactions = async (walletId) => {
-    try {
-      const data = await transactionService.getWalletTransactions(walletId);
-      setTransactions(data.transactions || []);
-    } catch (error) {
-      console.error('Failed to fetch transactions:', error);
-    }
-  };
+  useEffect(() => {
+    fetchWallets();
+  }, [fetchWallets]);
 
   const handleWalletChange = (e) => {
     const walletId = e.target.value;

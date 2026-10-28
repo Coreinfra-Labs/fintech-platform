@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { transactionService } from '../services/transactionService';
 import { walletService } from '../services/walletService';
 import toast from 'react-hot-toast';
@@ -17,12 +17,7 @@ const Transfer = () => {
     description: '',
   });
 
-  // ✅ Added fetchWallets to dependency array
-  useEffect(() => {
-    fetchWallets();
-  }, [fetchWallets]);
-
-  const fetchWallets = async () => {
+  const fetchWallets = useCallback(async () => {
     try {
       if (user?.id) {
         const data = await walletService.getWallets(user.id);
@@ -37,7 +32,11 @@ const Transfer = () => {
     } catch (error) {
       toast.error('Failed to fetch wallets');
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    fetchWallets();
+  }, [fetchWallets]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;

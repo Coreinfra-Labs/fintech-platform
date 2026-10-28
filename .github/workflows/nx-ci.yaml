@@ -82,7 +82,7 @@ jobs:
       # ============================================
 
       - name: Install Playwright
-        run: pnpm exec playwright install --with-deps
+        run: pnpm exec playwright install --with-deps chromium firefox msedge
 
       # ============================================
       # NX SHAS
@@ -90,17 +90,18 @@ jobs:
 
       - name: Set Nx SHAs
         uses: nrwl/nx-set-shas@v5
-
+    
       # ============================================
       # NX CLOUD
       # ============================================
-
+        /* 
       - name: Start Nx Cloud CI
         run: |
           pnpm exec nx start-ci-run \
             --distribute-on=".nx/workflows/distribution-config.yaml" \
             --stop-agents-after="e2e"
 
+         */
       # ============================================
       # FULL CI
       # ============================================
@@ -111,6 +112,7 @@ jobs:
           pnpm nx run-many \
             -t lint,test-ci,typecheck,build \
             --all
+            --no-cloud
 
       # ============================================
       # FULL E2E
@@ -122,6 +124,7 @@ jobs:
           pnpm nx run-many \
             -t e2e \
             --all
+            --no-cloud
 
       # ============================================
       # AFFECTED CI
@@ -132,6 +135,7 @@ jobs:
         run: |
           pnpm nx affected \
             -t lint,test-ci,typecheck,build
+            --no-cloud
 
       # ============================================
       # AFFECTED E2E
@@ -142,6 +146,7 @@ jobs:
         run: |
           pnpm nx affected \
             -t e2e
+            --no-cloud
 
       # ============================================
       # NX FIX CI
