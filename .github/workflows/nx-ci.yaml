@@ -92,16 +92,14 @@ jobs:
         uses: nrwl/nx-set-shas@v5
     
       # ============================================
-      # NX CLOUD
+      # NX CLOUD (TEMPORARILY DISABLED)
       # ============================================
-        /* 
-      - name: Start Nx Cloud CI
-        run: |
-          pnpm exec nx start-ci-run \
-            --distribute-on=".nx/workflows/distribution-config.yaml" \
-            --stop-agents-after="e2e"
 
-         */
+      # - name: Start Nx Cloud CI
+      #   run: |
+      #     pnpm exec nx start-ci-run \
+      #       --distribute-on=".nx/workflows/distribution-config.yaml" \
+      #       --stop-agents-after="e2e"
       # ============================================
       # FULL CI
       # ============================================
