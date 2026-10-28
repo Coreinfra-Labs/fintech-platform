@@ -102,9 +102,8 @@ const setupGracefulShutdown = () => {
   });
 };
 
+
 server = app.listen(PORT, () => {
   logger.info(`API Gateway running on port ${PORT}`);
   setupGracefulShutdown();
 });
-
-module.exports = app;

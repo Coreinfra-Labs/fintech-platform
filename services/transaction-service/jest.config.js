@@ -1,7 +1,9 @@
-{
-  "executor": "nx:run-commands",
-  "options": {
-    "command": "pnpm exec jest --config services/transaction-service/jest.config.js --runInBand",
-    "cwd": "."
-  }
-}
+/** @type {import('jest').Config} */
+module.exports = {
+  testEnvironment: 'node',
+  testMatch: [
+    '**/__tests__/**/*.test.js',
+    '**/?(*.)+(spec|test).js',
+  ],
+  clearMocks: true,
+};

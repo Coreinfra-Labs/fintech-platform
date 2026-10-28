@@ -103,6 +103,7 @@ describe('Fraud Consumer', () => {
       destinationWalletId: 'wallet-2',
       amount: 100,
       type: 'TRANSFER',
+      timestamp: new Date('2024-01-01T12:00:00Z'),
     });
 
     expect(FraudAlert.create).toHaveBeenCalledWith(

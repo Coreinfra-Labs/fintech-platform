@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   # PostgreSQL Database
@@ -33,28 +33,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # Kafka Message Broker
-  kafka:
-    image: confluentinc/cp-kafka:7.5.0
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://kafka:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-    depends_on:
-      - zookeeper
-    ports:
-      - "9092:9092"
-    networks:
-      - fintech-network
-    healthcheck:
-      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/9092' >/dev/null 2>&1 || exit 1"]
-      interval: 15s
-      timeout: 10s
-      retries: 10
-
+  # Zookeeper
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
     environment:
@@ -67,6 +46,34 @@ services:
       test: ["CMD-SHELL", "echo ruok | nc localhost 2181 | grep -q imok"]
       interval: 10s
       timeout: 5s
+      retries: 10
+
+  # Kafka Message Broker
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+    networks:
+      - fintech-network
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "bash -c 'echo > /dev/tcp/localhost/9092' >/dev/null 2>&1 || exit 1"
+        ]
+      interval: 15s
+      timeout: 10s
       retries: 10
 
   # Kafka UI
@@ -84,210 +91,10 @@ services:
     networks:
       - fintech-network
 
-  # API Gateway
-  api-gateway:
-    build: ./services/api-gateway
-    ports:
-      - "3000:3000"
-    environment:
-      PORT: 3000
-      USER_SERVICE_URL: http://user-service:3001
-      WALLET_SERVICE_URL: http://wallet-service:3002
-      TRANSACTION_SERVICE_URL: http://transaction-service:3003
-      PAYMENT_SERVICE_URL: http://payment-service:3004
-      FRAUD_SERVICE_URL: http://fraud-service:3005
-      NOTIFICATION_SERVICE_URL: http://notification-service:3006
-      LEDGER_SERVICE_URL: http://ledger-service:3008
-      JWT_SECRET: your-super-secret-jwt-key-change-in-production
-    depends_on:
-      - user-service
-      - wallet-service
-      - transaction-service
-      - payment-service
-      - fraud-service
-      - notification-service
-      - ledger-service
-    networks:
-      - fintech-network
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-
-  # User Service
-  user-service:
-    build: ./services/user-service
-    ports:
-      - "3001:3001"
-    environment:
-      PORT: 3001
-      DATABASE_URL: postgresql://fintech_user:fintech_secure_password@postgres:5432/fintech_db
-      REDIS_URL: redis://redis:6379
-      JWT_SECRET: your-super-secret-jwt-key-change-in-production
-    depends_on:
-      - postgres
-      - redis
-    networks:
-      - fintech-network
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:3001/health || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-
-  # Wallet Service
-  wallet-service:
-    build: ./services/wallet-service
-    ports:
-      - "3002:3002"
-    environment:
-      PORT: 3002
-      DATABASE_URL: postgresql://fintech_user:fintech_secure_password@postgres:5432/fintech_db
-    depends_on:
-      - postgres
-    networks:
-      - fintech-network
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:3002/health || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-
-  # Transaction Service
-  transaction-service:
-    build: ./services/transaction-service
-    ports:
-      - "3003:3003"
-    environment:
-      PORT: 3003
-      DATABASE_URL: postgresql://fintech_user:fintech_secure_password@postgres:5432/fintech_db
-      KAFKA_BROKERS: kafka:29092
-      LEDGER_SERVICE_URL: http://ledger-service:3008
-      MAX_RETRIES: 3
-    depends_on:
-      - postgres
-      - kafka
-      - ledger-service
-    networks:
-      - fintech-network
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:3003/health || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-
-  # Ledger Service
-  ledger-service:
-    build: ./services/ledger-service
-    ports:
-      - "3008:3008"
-    environment:
-      PORT: 3008
-      DATABASE_URL: postgresql://fintech_user:fintech_secure_password@postgres:5432/fintech_db
-      WALLET_SERVICE_URL: http://wallet-service:3002
-    depends_on:
-      - postgres
-    networks:
-      - fintech-network
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:3008/health || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-
-  # Payment Service
-  payment-service:
-    build: ./services/payment-service
-    ports:
-      - "3004:3004"
-    environment:
-      PORT: 3004
-      DATABASE_URL: postgresql://fintech_user:fintech_secure_password@postgres:5432/fintech_db
-      NIBSS_API_URL: http://nibss-mock:3007
-    depends_on:
-      - postgres
-      - nibss-mock
-    networks:
-      - fintech-network
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:3004/health || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-
-  # Fraud Service
-  fraud-service:
-    build: ./services/fraud-service
-    ports:
-      - "3005:3005"
-    environment:
-      PORT: 3005
-      DATABASE_URL: postgresql://fintech_user:fintech_secure_password@postgres:5432/fintech_db
-      KAFKA_BROKERS: kafka:29092
-      FRAUD_THRESHOLD: 500000
-      HIGH_RISK_THRESHOLD: 50
-      MAX_RETRIES: 3
-    depends_on:
-      - postgres
-      - kafka
-    networks:
-      - fintech-network
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:3005/health || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-
-  # Notification Service
-  notification-service:
-    build: ./services/notification-service
-    ports:
-      - "3006:3006"
-    environment:
-      PORT: 3006
-      KAFKA_BROKERS: kafka:29092
-      EMAIL_USER: noreply@fintech.com
-      EMAIL_PASSWORD: your-app-password
-      TWILIO_ACCOUNT_SID: your-twilio-sid
-      TWILIO_AUTH_TOKEN: your-twilio-token
-      TWILIO_PHONE: +1234567890
-      USER_SERVICE_URL: http://user-service:3001
-      WALLET_SERVICE_URL: http://wallet-service:3002
-      MAX_RETRIES: 3
-    depends_on:
-      - kafka
-      - user-service
-      - wallet-service
-    networks:
-      - fintech-network
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:3006/health || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-
-  # DLQ processor
-  dlq-processor:
-    build: ./services/dlq-processor
-    ports:
-      - "3009:3009"
-    environment:
-      PORT: 3009
-      KAFKA_BROKERS: kafka:29092
-    depends_on:
-      - kafka
-    networks:
-      - fintech-network
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:3009/health || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-
   # NIBSS Mock Service
   nibss-mock:
-    build: ./mock-services/nibss-mock
+    build:
+      context: ./services/mock-services/nibss-mock
     ports:
       - "3007:3007"
     environment:
@@ -300,9 +107,246 @@ services:
       timeout: 5s
       retries: 10
 
+  # User Service
+  user-service:
+    build:
+      context: ./services/user-service
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: 3001
+      DATABASE_URL: postgresql://fintech_user:fintech_secure_password@postgres:5432/fintech_db
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-change-this-development-secret}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - fintech-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3001/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  # Wallet Service
+  wallet-service:
+    build:
+      context: ./services/wallet-service
+    ports:
+      - "3002:3002"
+    environment:
+      PORT: 3002
+      DATABASE_URL: postgresql://fintech_user:fintech_secure_password@postgres:5432/fintech_db
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - fintech-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3002/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  # Ledger Service
+  ledger-service:
+    build:
+      context: .
+      dockerfile: services/ledger-service/Dockerfile
+    ports:
+      - "3008:3008"
+    environment:
+      PORT: 3008
+      DATABASE_URL: postgresql://fintech_user:fintech_secure_password@postgres:5432/fintech_db
+      WALLET_SERVICE_URL: http://wallet-service:3002
+    depends_on:
+      postgres:
+        condition: service_healthy
+      wallet-service:
+        condition: service_started
+    networks:
+      - fintech-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3008/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  # Transaction Service
+  transaction-service:
+    build:
+      context: ./services/transaction-service
+    ports:
+      - "3003:3003"
+    environment:
+      PORT: 3003
+      DATABASE_URL: postgresql://fintech_user:fintech_secure_password@postgres:5432/fintech_db
+      KAFKA_BROKERS: kafka:29092
+      LEDGER_SERVICE_URL: http://ledger-service:3008
+      MAX_RETRIES: 3
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      ledger-service:
+        condition: service_started
+    networks:
+      - fintech-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3003/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  # Payment Service
+  payment-service:
+    build:
+      context: ./services/payment-service
+    ports:
+      - "3004:3004"
+    environment:
+      PORT: 3004
+      DATABASE_URL: postgresql://fintech_user:fintech_secure_password@postgres:5432/fintech_db
+      NIBSS_API_URL: http://nibss-mock:3007
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nibss-mock:
+        condition: service_healthy
+    networks:
+      - fintech-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3004/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  # Fraud Service
+  fraud-service:
+    build:
+      context: ./services/fraud-service
+    ports:
+      - "3005:3005"
+    environment:
+      PORT: 3005
+      DATABASE_URL: postgresql://fintech_user:fintech_secure_password@postgres:5432/fintech_db
+      KAFKA_BROKERS: kafka:29092
+      FRAUD_THRESHOLD: 500000
+      HIGH_RISK_THRESHOLD: 50
+      MAX_RETRIES: 3
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - fintech-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3005/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  # Notification Service
+  notification-service:
+    build:
+      context: ./services/notification-service
+    ports:
+      - "3006:3006"
+    environment:
+      PORT: 3006
+      KAFKA_BROKERS: kafka:29092
+      EMAIL_USER: ${EMAIL_USER:-noreply@fintech.com}
+      EMAIL_PASSWORD: ${EMAIL_PASSWORD:-}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_PHONE: ${TWILIO_PHONE:-}
+      USER_SERVICE_URL: http://user-service:3001
+      WALLET_SERVICE_URL: http://wallet-service:3002
+      MAX_RETRIES: 3
+    depends_on:
+      kafka:
+        condition: service_healthy
+      user-service:
+        condition: service_started
+      wallet-service:
+        condition: service_started
+    networks:
+      - fintech-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3006/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  # API Gateway
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      USER_SERVICE_URL: http://user-service:3001
+      WALLET_SERVICE_URL: http://wallet-service:3002
+      TRANSACTION_SERVICE_URL: http://transaction-service:3003
+      PAYMENT_SERVICE_URL: http://payment-service:3004
+      FRAUD_SERVICE_URL: http://fraud-service:3005
+      NOTIFICATION_SERVICE_URL: http://notification-service:3006
+      LEDGER_SERVICE_URL: http://ledger-service:3008
+      JWT_SECRET: ${JWT_SECRET:-change-this-development-secret}
+    depends_on:
+      user-service:
+        condition: service_started
+      wallet-service:
+        condition: service_started
+      transaction-service:
+        condition: service_started
+      payment-service:
+        condition: service_started
+      fraud-service:
+        condition: service_started
+      notification-service:
+        condition: service_started
+      ledger-service:
+        condition: service_started
+    networks:
+      - fintech-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  # DLQ Processor
+  dlq-processor:
+    build:
+      context: .
+      dockerfile: services/dlq-processor/Dockerfile
+    ports:
+      - "3009:3009"
+    environment:
+      PORT: 3009
+      KAFKA_BROKERS: kafka:29092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - fintech-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3009/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
   # React Frontend
   web:
-    build: ./web
+    build:
+      context: ./services/web
     ports:
       - "3010:3000"
     environment:
@@ -317,15 +361,16 @@ services:
       timeout: 5s
       retries: 10
 
+  # OpenTelemetry Collector
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.85.0
     volumes:
       - ./opentelemetry-collector-config.yaml:/etc/otel-collector-config.yaml:ro
     command: ["--config", "/etc/otel-collector-config.yaml"]
     ports:
-      - "4317:4317"   # OTLP gRPC
-      - "4318:4318"   # OTLP HTTP
-      - "8889:8889"   # Prometheus metrics endpoint
+      - "4317:4317"
+      - "4318:4318"
+      - "8889:8889"
     networks:
       - fintech-network
     depends_on:

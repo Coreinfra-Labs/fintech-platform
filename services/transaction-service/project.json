@@ -1,6 +1,7 @@
+
 {
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
-  "name": "transcation-service",
+  "name": "transaction-service",
   "sourceRoot": "services/transaction-service/src",
   "projectType": "application",
   "targets": {
@@ -26,10 +27,10 @@
     },
     "lint": {
       "executor": "nx:run-commands",
-      "cache":true,
+      "cache": true,
       "options": {
         "command": "eslint src",
-        "cwd": "services/transaction-service/*"
+        "cwd": "services/transaction-service"
       }
     },
     "test": {
@@ -37,7 +38,7 @@
       "cache": true,
       "options": {
         "command": "jest",
-        "cwd": "services/transaction-service/*"
+        "cwd": "services/transaction-service"
       }
     }
   }

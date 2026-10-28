@@ -1,5 +1,5 @@
 {
-  "name": "nibss-mock",
+  "name": "mock-service/nibss-mock",
   "version": "1.0.0",
   "description": "NIBSS Mock API for testing",
   "main": "src/index.js",
