@@ -35,10 +35,6 @@ jobs:
         with:
           filter: tree:0
           fetch-depth: 0
-    
-  
-
-
 
       # ============================================
       # NODE
@@ -68,7 +64,6 @@ jobs:
         with:
           node-version: 23.3.0
           cache: pnpm
-     
 
       # ============================================
       # INSTALL
@@ -90,7 +85,7 @@ jobs:
 
       - name: Set Nx SHAs
         uses: nrwl/nx-set-shas@v5
-    
+
       # ============================================
       # NX CLOUD (TEMPORARILY DISABLED)
       # ============================================
@@ -100,16 +95,17 @@ jobs:
       #     pnpm exec nx start-ci-run \
       #       --distribute-on=".nx/workflows/distribution-config.yaml" \
       #       --stop-agents-after="e2e"
+
       # ============================================
       # FULL CI
       # ============================================
 
       - name: Run full monorepo CI
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && inputs.full_ci == true
         run: |
           pnpm nx run-many \
-            -t lint,test-ci,typecheck,build \
-            --all
+            -t lint,test,typecheck,build \
+            --all \
             --no-cloud
 
       # ============================================
@@ -117,11 +113,11 @@ jobs:
       # ============================================
 
       - name: Run all E2E tests
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && inputs.full_ci == true
         run: |
           pnpm nx run-many \
             -t e2e \
-            --all
+            --all \
             --no-cloud
 
       # ============================================
@@ -129,10 +125,10 @@ jobs:
       # ============================================
 
       - name: Run affected CI
-        if: github.event_name != 'workflow_dispatch'
+        if: github.event_name != 'workflow_dispatch' || inputs.full_ci != true
         run: |
           pnpm nx affected \
-            -t lint,test-ci,typecheck,build
+            -t lint,test,typecheck,build \
             --no-cloud
 
       # ============================================
@@ -140,16 +136,16 @@ jobs:
       # ============================================
 
       - name: Run affected E2E
-        if: github.event_name != 'workflow_dispatch'
+        if: github.event_name != 'workflow_dispatch' || inputs.full_ci != true
         run: |
           pnpm nx affected \
-            -t e2e
+            -t e2e \
             --no-cloud
 
       # ============================================
-      # NX FIX CI
+      # NX FIX CI (TEMPORARILY DISABLED)
       # ============================================
 
-      - name: Nx fix CI
-        if: always()
-        run: pnpm exec nx fix-ci
+      # - name: Nx fix CI
+      #   if: always()
+      #   run: pnpm exec nx fix-ci
