@@ -36,7 +36,7 @@ jobs:
           filter: tree:0
           fetch-depth: 0
     
-
+  
 
 
      # ============================================
@@ -49,6 +49,14 @@ jobs:
           node-version: 23.3.0
           cache: pnpm
 
+          # ============================================
+      # NODE
+      # ============================================
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 23.3.0
 
       # ============================================
       # PNPM
@@ -60,6 +68,15 @@ jobs:
           version: 9.8.0
           run_install: false
 
+      # ============================================
+      # PNPM CACHE
+      # ============================================
+
+      - name: Enable pnpm cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: 23.3.0
+          cache: pnpm
      
 
       # ============================================
