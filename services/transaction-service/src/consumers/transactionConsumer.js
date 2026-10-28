@@ -5,7 +5,6 @@ const axios = require('axios');
 
 const logger = createLogger('Transaction-Consumer');
 
-const LEDGER_SERVICE_URL = process.env.LEDGER_SERVICE_URL || null;
 const MAX_RETRIES = parseInt(process.env.MAX_RETRIES || '3', 10);
 
 let dlqService = null;
@@ -27,11 +26,12 @@ const startTransactionConsumer = async (kafkaService) => {
       await transaction.update({ status: 'PROCESSING' });
 
       let ledgerRecordingSucceeded = false;
+      const ledgerServiceUrl = process.env.LEDGER_SERVICE_URL || null;
 
       // Attempt ledger recording if service URL is configured
-      if (LEDGER_SERVICE_URL) {
+      if (ledgerServiceUrl) {
         try {
-          await axios.post(`${LEDGER_SERVICE_URL}/api/ledger/record`, {
+          await axios.post(`${ledgerServiceUrl}/api/ledger/record`, {
             transactionId: transaction.id,
             sourceWalletId: transaction.sourceWalletId,
             destinationWalletId: transaction.destinationWalletId,
@@ -70,7 +70,7 @@ const startTransactionConsumer = async (kafkaService) => {
       }
 
       // Update transaction to COMPLETED only if ledger succeeded or is not required
-      if (ledgerRecordingSucceeded || !LEDGER_SERVICE_URL) {
+      if (ledgerRecordingSucceeded || !ledgerServiceUrl) {
         await transaction.update({
           status: 'COMPLETED',
           settledAt: new Date(),

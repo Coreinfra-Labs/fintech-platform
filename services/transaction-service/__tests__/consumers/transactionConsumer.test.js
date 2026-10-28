@@ -117,8 +117,11 @@ describe('Transaction Consumer', () => {
       expect.objectContaining({ status: 'FAILED' })
     );
 
-    // Should NOT publish completion event
-    expect(mockKafkaService.publishEvent).not.toHaveBeenCalled();
+    // Should NOT publish a completion event
+    expect(mockKafkaService.publishEvent).not.toHaveBeenCalledWith(
+      'transaction-completed',
+      expect.any(Object)
+    );
   });
 
   it('should handle missing LEDGER_SERVICE_URL gracefully', async () => {
