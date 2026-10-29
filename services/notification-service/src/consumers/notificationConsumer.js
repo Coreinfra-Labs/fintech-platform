@@ -1,6 +1,7 @@
 const { createLogger, kafkaTopics } = require('fintech-shared-libs');
 const nodemailer = require('nodemailer');
-const axios = require('axios');
+const { DLQService } = require('../services/dlqService');
+const { getUserContactFromWallet } = require('../services/userWalletService');
 
 const logger = createLogger('Notification-Consumer');
 
@@ -21,90 +22,123 @@ const initializeEmailTransporter = () => {
 
 const startNotificationConsumer = async (kafkaService) => {
   initializeEmailTransporter();
+  const dlqService = new DLQService(kafkaService);
 
-  // Subscribe to transaction-completed topic
-  await kafkaService.subscribeToTopic(
-  kafkaTopics.TOPICS.TRANSACTION_COMPLETED,
-  async (data) => {
+  const handleTransactionCompleted = async (data, originalTopic) => {
     try {
       if (data.status !== 'COMPLETED') {
         return;
       }
 
-      logger.info(`Sending notification for transaction: ${data.transactionId}`);
+      const notification = {
+        ...data,
+        transactionId: data.transactionId || data.paymentId,
+      };
+      logger.info(`Sending notification for transaction: ${notification.transactionId}`);
 
-      // Get user details
-      let userEmail = null;
-      let userPhone = null;
-
-      try {
-        const userResponse = await axios.get(
-          `${process.env.USER_SERVICE_URL}/api/user/${data.sourceWalletId}`,
-          { timeout: 5000 }
-        );
-        userEmail = userResponse.data?.email;
-        userPhone = userResponse.data?.phone;
-      } catch (error) {
-        logger.warn(`Failed to fetch user details: ${error.message}`);
+      const contact = await getUserContactFromWallet(data.sourceWalletId);
+      if (!contact.email && !contact.phone) {
+        throw new Error(`No contact details found for wallet ${data.sourceWalletId}`);
       }
 
-      // Send email notification
-      if (userEmail && emailTransporter) {
-        try {
-          await sendEmailNotification(userEmail, data);
-          logger.info(`Email notification sent to ${userEmail}`);
-        } catch (emailError) {
-          logger.error(`Failed to send email: ${emailError.message}`);
-        }
+      let delivered = false;
+      if (contact.email && emailTransporter) {
+        await sendEmailNotification(contact.email, notification);
+        logger.info(`Email notification sent to ${contact.email}`);
+        delivered = true;
       }
 
-      // Send SMS notification if Twilio is configured
-      if (userPhone && process.env.TWILIO_ACCOUNT_SID) {
-        try {
-          await sendSMSNotification(userPhone, data);
-          logger.info(`SMS notification sent to ${userPhone}`);
-        } catch (smsError) {
-          logger.error(`Failed to send SMS: ${smsError.message}`);
-        }
+      if (contact.phone && process.env.TWILIO_ACCOUNT_SID) {
+        await sendSMSNotification(contact.phone, notification);
+        logger.info(`SMS notification sent to ${contact.phone}`);
+        delivered = true;
       }
 
-      logger.info(`Notification completed for transaction: ${data.transactionId}`);
+      if (!delivered) {
+        throw new Error('No notification provider is configured for the available contact details');
+      }
+
     } catch (error) {
       logger.error(`Notification consumer error: ${error.message}`, error);
+      await dlqService.sendToDLQ(
+        kafkaTopics.TOPICS.NOTIFICATION_DLQ,
+        data,
+        error,
+        { originalTopic }
+      );
     }
-  });
+  };
 
-  // Subscribe to fraud alerts
-  await kafkaService.subscribeToTopic(kafkaTopics.TOPICS.FRAUD_ALERT, async (data) => {
+  const handleFraudAlert = async (data) => {
     try {
       logger.info(`Sending fraud alert notification for transaction: ${data.transactionId}`);
 
-      // Get user details
-      let userEmail = null;
-
-      try {
-        const userResponse = await axios.get(
-          `${process.env.USER_SERVICE_URL}/api/profile/${data.sourceWalletId}`,
-          { timeout: 5000 }
-        );
-        userEmail = userResponse.data?.email;
-      } catch (error) {
-        logger.warn(`Failed to fetch user details for fraud alert: ${error.message}`);
+      const contact = await getUserContactFromWallet(data.sourceWalletId);
+      if (!contact.email) {
+        throw new Error(`No email address found for wallet ${data.sourceWalletId}`);
       }
 
-      // Send high-priority fraud alert email
-      if (userEmail && emailTransporter) {
-        try {
-          await sendFraudAlertEmail(userEmail, data);
-          logger.info(`Fraud alert email sent to ${userEmail}`);
-        } catch (emailError) {
-          logger.error(`Failed to send fraud alert email: ${emailError.message}`);
-        }
+      if (emailTransporter) {
+        await sendFraudAlertEmail(contact.email, data);
+        logger.info(`Fraud alert email sent to ${contact.email}`);
       }
     } catch (error) {
       logger.error(`Fraud alert notification error: ${error.message}`, error);
+      await dlqService.sendToDLQ(
+        kafkaTopics.TOPICS.NOTIFICATION_DLQ,
+        data,
+        error,
+        { originalTopic: kafkaTopics.TOPICS.FRAUD_ALERT }
+      );
     }
-  });
+  };
+
+  const handlePaymentInitiated = async (data) => {
+    try {
+      const paymentId = data.transactionId || data.paymentId;
+      const contact = await getUserContactFromWallet(data.sourceWalletId);
+      let delivered = false;
+
+      if (contact.email && emailTransporter) {
+        await sendPaymentInitiatedEmail(contact.email, { ...data, paymentId });
+        delivered = true;
+      }
+
+      if (contact.phone && process.env.TWILIO_ACCOUNT_SID) {
+        await sendSMSNotification(contact.phone, {
+          ...data,
+          transactionId: paymentId,
+          type: data.type || 'PAYMENT',
+        }, 'initiated');
+        delivered = true;
+      }
+
+      if (!delivered) {
+        throw new Error(`No notification channel available for payment ${paymentId}`);
+      }
+    } catch (error) {
+      logger.error(`Payment initiation notification error: ${error.message}`, error);
+      await dlqService.sendToDLQ(
+        kafkaTopics.TOPICS.NOTIFICATION_DLQ,
+        data,
+        error,
+        { originalTopic: kafkaTopics.TOPICS.PAYMENT_INITIATED }
+      );
+    }
+  };
+
+  await kafkaService.subscribeToTopics([
+    {
+      topic: kafkaTopics.TOPICS.TRANSACTION_COMPLETED,
+      callback: (data) => handleTransactionCompleted(data, kafkaTopics.TOPICS.TRANSACTION_COMPLETED),
+    },
+    {
+      topic: kafkaTopics.TOPICS.PAYMENT_COMPLETED,
+      callback: (data) => handleTransactionCompleted(data, kafkaTopics.TOPICS.PAYMENT_COMPLETED),
+    },
+    { topic: kafkaTopics.TOPICS.PAYMENT_INITIATED, callback: handlePaymentInitiated },
+    { topic: kafkaTopics.TOPICS.FRAUD_ALERT, callback: handleFraudAlert },
+  ]);
 };
 
 async function sendEmailNotification(email, transactionData) {
@@ -140,8 +174,8 @@ async function sendFraudAlertEmail(email, fraudData) {
       <ul>
         <li><strong>Transaction ID:</strong> ${fraudData.transactionId}</li>
         <li><strong>Amount:</strong> ${fraudData.amount}</li>
-        <li><strong>Risk Level:</strong> <span style="color: red; font-weight: bold;">${fraudData.riskLevel}</span></li>
-        <li><strong>Fraud Score:</strong> ${fraudData.fraudScore}/100</li>
+        <li><strong>Alert:</strong> <span style="color: red; font-weight: bold;">${fraudData.alertType}</span></li>
+        <li><strong>Fraud Score:</strong> ${fraudData.riskScore}/100</li>
         <li><strong>Date:</strong> ${new Date(fraudData.timestamp).toLocaleString()}</li>
       </ul>
       <p><strong>Action Required:</strong> Please verify this transaction immediately. If this was not you, contact our support team.</p>
@@ -152,14 +186,27 @@ async function sendFraudAlertEmail(email, fraudData) {
   return emailTransporter.sendMail(mailOptions);
 }
 
-async function sendSMSNotification(phone, transactionData) {
+async function sendPaymentInitiatedEmail(email, paymentData) {
+  return emailTransporter.sendMail({
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject: `Payment Initiated - ${paymentData.paymentId}`,
+    html: `
+      <h2>Payment Initiated</h2>
+      <p>Your payment of ${paymentData.amount} has been initiated.</p>
+      <p><strong>Reference:</strong> ${paymentData.paymentId}</p>
+    `,
+  });
+}
+
+async function sendSMSNotification(phone, transactionData, status = 'completed successfully') {
   // SMS implementation using Twilio
   try {
     const twilio = require('twilio');
     const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
   
-    const message = `Your ${transactionData.type} transaction ${transactionData.transactionId} for ${transactionData.amount} has been completed successfully.`;
+    const message = `Your ${transactionData.type} transaction ${transactionData.transactionId} for ${transactionData.amount} has been ${status}.`;
 
     await client.messages.create({
       body: message,

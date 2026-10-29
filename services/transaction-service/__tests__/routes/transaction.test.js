@@ -70,6 +70,43 @@ describe('Transaction Routes', () => {
       );
     });
 
+    it('should publish payment initiation for a PAYMENT transaction', async () => {
+      const transactionId = uuidv4();
+      const sourceWalletId = uuidv4();
+      const destinationWalletId = uuidv4();
+
+      Transaction.findOne = jest.fn().mockResolvedValue(null);
+      Transaction.create = jest.fn().mockResolvedValue({
+        id: transactionId,
+        sourceWalletId,
+        destinationWalletId,
+        destinationAccountNumber: '0001234567',
+        destinationBankCode: '001',
+        amount: 1000,
+        type: 'PAYMENT',
+        reference: 'TXN-payment1',
+        status: 'PENDING',
+      });
+
+      const response = await request(app)
+        .post('/api/transaction/create')
+        .send({
+          sourceWalletId,
+          destinationWalletId,
+          destinationAccountNumber: '0001234567',
+          destinationBankCode: '001',
+          amount: 1000,
+          type: 'PAYMENT',
+          idempotencyKey: uuidv4(),
+        });
+
+      expect(response.status).toBe(201);
+      expect(mockKafkaService.publishEvent).toHaveBeenCalledWith(
+        'payment-initiated',
+        expect.objectContaining({ transactionId, status: 'PENDING' })
+      );
+    });
+
     it('should return 400 for invalid input', async () => {
       const response = await request(app)
         .post('/api/transaction/create')

@@ -27,6 +27,9 @@ const startTransactionConsumer = async (kafkaService) => {
 
       let ledgerRecordingSucceeded = false;
       const ledgerServiceUrl = process.env.LEDGER_SERVICE_URL || null;
+      const failureTopic = transaction.type === 'PAYMENT'
+        ? kafkaTopics.TOPICS.PAYMENT_FAILED_DLQ
+        : kafkaTopics.TOPICS.TRANSACTION_FAILED_DLQ;
 
       // Attempt ledger recording if service URL is configured
       if (ledgerServiceUrl) {
@@ -44,7 +47,7 @@ const startTransactionConsumer = async (kafkaService) => {
           
           // Send to DLQ for retry
           await dlqService.sendToDLQ(
-            kafkaTopics.TOPICS.TRANSACTION_FAILED_DLQ,
+            failureTopic,
             data,
             error,
             {
@@ -77,7 +80,11 @@ const startTransactionConsumer = async (kafkaService) => {
         });
 
         // Publish completion event
-        await kafkaService.publishEvent(kafkaTopics.TOPICS.TRANSACTION_COMPLETED, {
+        const completionTopic = transaction.type === 'PAYMENT'
+          ? kafkaTopics.TOPICS.PAYMENT_COMPLETED
+          : kafkaTopics.TOPICS.TRANSACTION_COMPLETED;
+
+        await kafkaService.publishEvent(completionTopic, {
           transactionId: transaction.id,
           status: 'COMPLETED',
           amount: transaction.amount,
@@ -94,7 +101,9 @@ const startTransactionConsumer = async (kafkaService) => {
       // Send unhandled errors to DLQ
       if (data && data.transactionId) {
         await dlqService.sendToDLQ(
-          kafkaTopics.TOPICS.TRANSACTION_FAILED_DLQ,
+          data.type === 'PAYMENT'
+            ? kafkaTopics.TOPICS.PAYMENT_FAILED_DLQ
+            : kafkaTopics.TOPICS.TRANSACTION_FAILED_DLQ,
           data,
           error,
           {

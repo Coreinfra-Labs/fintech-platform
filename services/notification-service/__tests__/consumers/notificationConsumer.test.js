@@ -6,15 +6,18 @@
 const { startNotificationConsumer } = require('../../src/consumers/notificationConsumer');
 const nodemailer = require('nodemailer');
 const twilio = require('twilio');
-const axios = require('axios');
+const { kafkaTopics } = require('fintech-shared-libs');
+const { getUserContactFromWallet } = require('../../src/services/userWalletService');
 
 jest.mock('nodemailer');
 jest.mock('twilio');
-jest.mock('axios');
+jest.mock('../../src/services/userWalletService', () => ({
+  getUserContactFromWallet: jest.fn(),
+}));
 
 describe('Notification Consumer', () => {
   let mockKafkaService;
-  let consumerCallback;
+  let topicHandlers;
   let mockEmailSend;
   let mockSmsSend;
 
@@ -44,24 +47,16 @@ describe('Notification Consumer', () => {
       },
     });
 
- mockKafkaService = {
-  subscribeToTopic: jest.fn((topic, callback) => {
-    if (
-      topic ===
-      require('fintech-shared-libs').kafkaTopics.TOPICS.TRANSACTION_COMPLETED
-    ) {
-      consumerCallback = callback;
-    }
-    return Promise.resolve();
-  }),
-};
+    mockKafkaService = {
+      subscribeToTopics: jest.fn(async (subscriptions) => {
+        topicHandlers = new Map(subscriptions.map(({ topic, callback }) => [topic, callback]));
+      }),
+      publishEvent: jest.fn().mockResolvedValue(undefined),
+    };
 
-    axios.get = jest.fn().mockResolvedValue({
-      data: {
-        id: 'user-123',
-        email: 'user@example.com',
-        phone: '+1987654321',
-      },
+    getUserContactFromWallet.mockResolvedValue({
+      email: 'user@example.com',
+      phone: '+1987654321',
     });
   });
 
@@ -71,7 +66,15 @@ describe('Notification Consumer', () => {
 
   it('should send email and SMS for completed transaction', async () => {
     await startNotificationConsumer(mockKafkaService);
-    await consumerCallback({
+    expect(mockKafkaService.subscribeToTopics).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ topic: kafkaTopics.TOPICS.TRANSACTION_COMPLETED }),
+        expect.objectContaining({ topic: kafkaTopics.TOPICS.PAYMENT_COMPLETED }),
+        expect.objectContaining({ topic: kafkaTopics.TOPICS.PAYMENT_INITIATED }),
+        expect.objectContaining({ topic: kafkaTopics.TOPICS.FRAUD_ALERT }),
+      ])
+    );
+    await topicHandlers.get(kafkaTopics.TOPICS.TRANSACTION_COMPLETED)({
       transactionId: 'txn-123',
       status: 'COMPLETED',
       amount: 1000,
@@ -80,10 +83,7 @@ describe('Notification Consumer', () => {
     });
 
     // Should fetch user contact
-    expect(axios.get).toHaveBeenCalledWith(
-      'http://user-service:3001/api/user/wallet-1',
-      expect.any(Object)
-    );
+    expect(getUserContactFromWallet).toHaveBeenCalledWith('wallet-1');
 
     // Should send email
     expect(mockEmailSend).toHaveBeenCalledWith(
@@ -104,7 +104,7 @@ describe('Notification Consumer', () => {
 
   it('should skip notification for non-completed transaction', async () => {
     await startNotificationConsumer(mockKafkaService);
-    await consumerCallback({
+    await topicHandlers.get(kafkaTopics.TOPICS.TRANSACTION_COMPLETED)({
       transactionId: 'txn-456',
       status: 'PENDING',
       amount: 1000,
@@ -112,27 +112,54 @@ describe('Notification Consumer', () => {
     });
 
     // Should not fetch user contact
-    expect(axios.get).not.toHaveBeenCalled();
+    expect(getUserContactFromWallet).not.toHaveBeenCalled();
 
     // Should not send notifications
     expect(mockEmailSend).not.toHaveBeenCalled();
     expect(mockSmsSend).not.toHaveBeenCalled();
   });
 
+  it('should notify the user when payment is initiated', async () => {
+    await startNotificationConsumer(mockKafkaService);
+    await topicHandlers.get(kafkaTopics.TOPICS.PAYMENT_INITIATED)({
+      transactionId: 'payment-123',
+      status: 'PENDING',
+      amount: 1000,
+      type: 'PAYMENT',
+      sourceWalletId: 'wallet-1',
+    });
+
+    expect(mockEmailSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'user@example.com',
+        subject: 'Payment Initiated - payment-123',
+      })
+    );
+    expect(mockSmsSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: '+1987654321',
+        body: expect.stringContaining('has been initiated'),
+      })
+    );
+  });
+
   it('should handle missing user contact gracefully', async () => {
-    axios.get.mockRejectedValue(new Error('User not found'));
+    getUserContactFromWallet.mockResolvedValue({ email: null, phone: null });
 
     await startNotificationConsumer(mockKafkaService);
-    await consumerCallback({
+    const data = {
       transactionId: 'txn-789',
       status: 'COMPLETED',
       amount: 1000,
       type: 'TRANSFER',
       sourceWalletId: 'wallet-unknown',
-    });
+    };
+    await topicHandlers.get(kafkaTopics.TOPICS.TRANSACTION_COMPLETED)(data);
 
-    // Should attempt to fetch user
-    expect(axios.get).toHaveBeenCalled();
+    expect(mockKafkaService.publishEvent).toHaveBeenCalledWith(
+      kafkaTopics.TOPICS.NOTIFICATION_DLQ,
+      expect.objectContaining({ originalMessage: data })
+    );
 
     // Should not send notifications if no contact
     expect(mockEmailSend).not.toHaveBeenCalled();
@@ -140,16 +167,10 @@ describe('Notification Consumer', () => {
   });
 
   it('should send email only if phone not available', async () => {
-    axios.get.mockResolvedValue({
-      data: {
-        id: 'user-123',
-        email: 'user@example.com',
-        phone: null,
-      },
-    });
+    getUserContactFromWallet.mockResolvedValue({ email: 'user@example.com', phone: null });
 
     await startNotificationConsumer(mockKafkaService);
-    await consumerCallback({
+    await topicHandlers.get(kafkaTopics.TOPICS.TRANSACTION_COMPLETED)({
       transactionId: 'txn-email-only',
       status: 'COMPLETED',
       amount: 1000,

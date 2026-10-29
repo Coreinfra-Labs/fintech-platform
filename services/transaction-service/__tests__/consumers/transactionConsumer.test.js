@@ -124,6 +124,60 @@ describe('Transaction Consumer', () => {
     );
   });
 
+  it('should publish payment completion after a PAYMENT is settled', async () => {
+    const transactionId = 'test-payment-id';
+    const mockTransaction = {
+      id: transactionId,
+      sourceWalletId: 'wallet-1',
+      destinationWalletId: null,
+      amount: 1000,
+      type: 'PAYMENT',
+      update: jest.fn().mockResolvedValue({}),
+    };
+
+    Transaction.findByPk.mockResolvedValue(mockTransaction);
+    axios.post.mockResolvedValue({ data: { success: true } });
+
+    await startTransactionConsumer(mockKafkaService);
+    await consumerCallback({
+      transactionId,
+      type: 'PAYMENT',
+      amount: 1000,
+      sourceWalletId: 'wallet-1',
+      status: 'PENDING',
+    });
+
+    expect(mockKafkaService.publishEvent).toHaveBeenCalledWith(
+      'payment-completed',
+      expect.objectContaining({ transactionId, status: 'COMPLETED' })
+    );
+    expect(mockKafkaService.publishEvent).not.toHaveBeenCalledWith(
+      'transaction-completed',
+      expect.any(Object)
+    );
+  });
+
+  it('should send failed PAYMENT settlement to payment-failed-dlq', async () => {
+    const mockTransaction = {
+      id: 'test-payment-id',
+      sourceWalletId: 'wallet-1',
+      amount: 1000,
+      type: 'PAYMENT',
+      update: jest.fn().mockResolvedValue({}),
+    };
+
+    Transaction.findByPk.mockResolvedValue(mockTransaction);
+    axios.post.mockRejectedValue(new Error('Ledger service unavailable'));
+
+    await startTransactionConsumer(mockKafkaService);
+    await consumerCallback({ transactionId: mockTransaction.id, type: 'PAYMENT' });
+
+    expect(mockKafkaService.publishEvent).toHaveBeenCalledWith(
+      'payment-failed-dlq',
+      expect.objectContaining({ originalMessage: expect.objectContaining({ type: 'PAYMENT' }) })
+    );
+  });
+
   it('should handle missing LEDGER_SERVICE_URL gracefully', async () => {
     delete process.env.LEDGER_SERVICE_URL;
 
