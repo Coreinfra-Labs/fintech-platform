@@ -1,261 +1,69 @@
 # Deployment Guide
 
-## Production Deployment
+## Local Compose deployment
 
-### Prerequisites
-- Docker & Docker Compose
-- Docker registry (Docker Hub, ECR, etc.)
-- Server with at least 4GB RAM
-- SSL certificate for HTTPS
-
-## Deployment Steps
-
-### 1. Prepare Environment Variables
-
-Create `.env.production` file:
-```env
-NODE_ENV=production
-JWT_SECRET=<generate-strong-random-string>
-POSTGRES_USER=fintech_prod_user
-POSTGRES_PASSWORD=<generate-strong-password>
-POSTGRES_DB=fintech_prod_db
-EMAIL_USER=<your-email>
-EMAIL_PASSWORD=<app-password>
-TWILIO_ACCOUNT_SID=<your-sid>
-TWILIO_AUTH_TOKEN=<your-token>
-TWILIO_PHONE=<your-phone>
-```
-
-### 2. Build Docker Images
+The checked-in Compose file is the available all-in-one development stack. From
+the repository root:
 
 ```bash
-# Build all services
-docker-compose build
-
-# Or build specific service
-docker build -t fintech/user-service:latest ./services/user-service
+docker compose up --build
+docker compose ps
+docker compose logs -f
 ```
 
-### 3. Push to Registry
+The web app is available at `http://localhost:3010` and the API Gateway at
+`http://localhost:3000`. Compose publishes PostgreSQL, Redis, Kafka, Zookeeper,
+and service ports on the host for development. Do not expose this configuration
+directly as a production deployment: it has no production override and includes
+development credentials and broadly published ports.
+
+Environment variables interpolated by Compose can be supplied in a root `.env`
+file. PostgreSQL settings and `FRAUD_THRESHOLD` are currently hard-coded in
+`docker-compose.yaml`; editing similarly named `.env` values will not override
+them.
+
+## Cloud workflow status
+
+The repository contains these GitHub Actions workflows:
+
+1. `release.yml` manually builds one selected service image and pushes an
+   immutable tag to AWS ECR. It must be run from `develop` and currently
+   supports the API Gateway, User, Wallet, Transaction, Payment, Fraud, and
+   Notification services only.
+2. `deploy-dev.yaml` follows a successful release and deploys to EKS using
+   direct `kubectl` commands.
+3. `deploy-staging.yaml` promotes release metadata through a GitOps repository
+   and Argo CD.
+4. `deploy-production.yaml` manually promotes an approved release through
+   GitOps and Argo CD.
+
+These are workflow implementations, not a ready-to-use deployment environment.
+The dev workflow contains `YOUR-DEV-EKS-CLUSTER`; staging and production contain
+`YOUR_ORG`, source/GitOps repository, and Argo CD server placeholders. AWS
+roles, repository access, GitHub environments, and required secrets must be
+configured and the workflows tested before deployment. No Helm chart or
+`docker-compose.prod.yaml` is checked in.
+
+## Database migrations
+
+Service Flyway migrations are stored in
+`services/<service>/db/migration/`. The `flyway-migration.yaml` workflow attempts
+to run these migrations against a temporary PostgreSQL instance; review that
+workflow's triggers and environment before relying on it. The separate
+`scripts/migrate-db.sh` script looks for `./migrations` at the repository root,
+which is not where the service Flyway migrations live, so it is not a substitute
+for the Flyway workflow.
+
+## Health and operations
+
+Compose defines health checks for its services. Useful local checks:
 
 ```bash
-# Login to registry
-docker login
-
-# Tag images
-docker tag fintech/user-service:latest myregistry/fintech/user-service:latest
-
-# Push images
-docker push myregistry/fintech/user-service:latest
-```
-
-### 4. Deploy to Server
-
-```bash
-# SSH into server
-ssh user@production-server
-
-# Clone repository
-git clone https://github.com/qzee-dev/fintech-platform.git
-cd fintech-platform
-
-# Create production compose file
-cp docker-compose.yml docker-compose.prod.yml
-
-# Copy environment file
-cp .env.example .env.production
-# Edit .env.production with production values
-
-# Start services
-docker-compose -f docker-compose.prod.yml up -d
-```
-
-### 5. Setup Reverse Proxy (Nginx)
-
-Create `/etc/nginx/sites-available/fintech`:
-
-```nginx
-server {
-    listen 80;
-    server_name api.fintech.com;
-
-    location / {
-        proxy_pass http://localhost:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-    }
-}
-
-server {
-    listen 80;
-    server_name fintech.com;
-
-    location / {
-        proxy_pass http://localhost:3001;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-    }
-}
-```
-
-### 6. Setup SSL with Let's Encrypt
-
-```bash
-# Install certbot
-sudo apt-get install certbot python3-certbot-nginx
-
-# Get certificate
-sudo certbot --nginx -d api.fintech.com -d fintech.com
-
-# Auto-renewal
-sudo systemctl enable certbot.timer
-```
-
-### 7. Database Backup
-
-Create backup script `/home/user/backup-db.sh`:
-
-```bash
-#!/bin/bash
-BACKUP_DIR="/home/user/backups"
-TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-
-docker exec fintech-platform_postgres_1 pg_dump -U fintech_prod_user fintech_prod_db | \
-  gzip > $BACKUP_DIR/backup_$TIMESTAMP.sql.gz
-
-# Keep only last 7 days of backups
-find $BACKUP_DIR -name "backup_*.sql.gz" -mtime +7 -delete
-```
-
-Schedule with cron:
-```bash
-crontab -e
-# Add: 0 2 * * * /home/user/backup-db.sh
-```
-
-### 8. Monitoring Setup
-
-Install monitoring tools:
-
-```bash
-# Install Docker stats
-docker stats --all --no-stream
-
-# Setup log aggregation
-docker-compose logs -f --tail=100
-```
-
-## Health Checks
-
-All services have health check endpoints:
-
-```bash
-# Check service health
+docker compose ps
 curl http://localhost:3000/health
-curl http://localhost:3001/health
-curl http://localhost:3002/health
+curl http://localhost:3010/
+docker compose logs -f <service-name>
 ```
 
-## Scaling
-
-### Horizontal Scaling with Load Balancer
-
-```yaml
-# docker-compose.prod.yml
-version: '3.8'
-
-services:
-  user-service:
-    build: ./services/user-service
-    deploy:
-      replicas: 3
-      resources:
-        limits:
-          cpus: '1'
-          memory: 512M
-```
-
-### Database Scaling
-
-- Use read replicas for better performance
-- Implement database connection pooling
-- Consider managed databases (RDS, Cloud SQL)
-
-## Security Hardening
-
-1. **Firewall Configuration**
-   ```bash
-   sudo ufw allow 22/tcp
-   sudo ufw allow 80/tcp
-   sudo ufw allow 443/tcp
-   sudo ufw enable
-   ```
-
-2. **Docker Security**
-   ```bash
-   # Use read-only file systems
-   docker run --read-only
-   
-   # Drop capabilities
-   docker run --cap-drop=ALL
-   ```
-
-3. **Network Isolation**
-   - Use Docker networks for service isolation
-   - Never expose services directly
-   - Use API gateway for all requests
-
-## Troubleshooting
-
-### Service Not Starting
-```bash
-docker-compose logs user-service
-docker-compose up user-service --no-detach
-```
-
-### Database Connection Issues
-```bash
-docker exec fintech-platform_postgres_1 psql -U fintech_prod_user -c "SELECT 1"
-```
-
-### High Memory Usage
-```bash
-docker stats
-docker-compose down
-docker system prune -a
-```
-
-## Maintenance
-
-### Regular Updates
-```bash
-# Update base images
-docker pull node:18-alpine
-docker pull postgres:15-alpine
-
-# Rebuild services
-docker-compose build --pull
-docker-compose up -d
-```
-
-### Log Rotation
-```bash
-# Configure Docker daemon for log rotation
-cat > /etc/docker/daemon.json << EOF
-{
-  "log-driver": "json-file",
-  "log-opts": {
-    "max-size": "10m",
-    "max-file": "3"
-  }
-}
-EOF
-
-sudo systemctl restart docker
-```
+For current ports and local operations, see [Docker.md](Docker.md). For cloud
+workflow details and required configuration, see [CICD.md](CICD.md).

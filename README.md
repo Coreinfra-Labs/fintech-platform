@@ -53,9 +53,16 @@ A comprehensive microservices-based fintech platform built with Node.js, React, 
    - Account validation simulation
    - Testing and development
 
+9. **Ledger Service** (Port 3008)
+   - Posts ledger entries for transactions
+   - Coordinates wallet balance updates
+
+10. **DLQ Processor** (Port 3009)
+    - Processes messages routed to Kafka dead-letter queues
+
 ### Frontend
 
-- **React Web Application** (Port 3001)
+- **React Web Application** (Port 3010)
   - Modern UI with Tailwind CSS
   - Dashboard with wallet overview
   - Transfer interface
@@ -85,12 +92,13 @@ A comprehensive microservices-based fintech platform built with Node.js, React, 
 ### Infrastructure
 - **Containerization**: Docker
 - **Orchestration**: Docker Compose
+- **Workspace**: pnpm and Nx
 
 ## Prerequisites
 
 - Docker & Docker Compose
-- Node.js 18+ (for local development)
-- npm or yarn
+- Node.js 20.19+ or 22.12+ (for local development)
+- pnpm 9.8 or later
 
 ## Getting Started
 
@@ -104,14 +112,14 @@ A comprehensive microservices-based fintech platform built with Node.js, React, 
 
 2. **Start all services**
    ```bash
-   docker-compose up --build
+   docker compose up --build
    ```
 
 3. **Wait for services to be ready**
    ```
    Services will be available at:
    - API Gateway: http://localhost:3000
-   - Web Frontend: http://localhost:3001
+   - Web Frontend: http://localhost:3010
    - User Service: http://localhost:3001
    - Wallet Service: http://localhost:3002
    - Transaction Service: http://localhost:3003
@@ -119,61 +127,31 @@ A comprehensive microservices-based fintech platform built with Node.js, React, 
    - Fraud Service: http://localhost:3005
    - Notification Service: http://localhost:3006
    - NIBSS Mock: http://localhost:3007
+   - Ledger Service: http://localhost:3008
+   - DLQ Processor: http://localhost:3009
+   - Kafka UI: http://localhost:8080
    ```
 
 ### Local Development
 
-1. **Install dependencies for each service**
+1. **Install workspace dependencies**
    ```bash
-   cd services/user-service && npm install
-   cd services/wallet-service && npm install
-   # ... repeat for other services
+   pnpm install
    ```
 
-2. **Set up PostgreSQL**
+2. **Run an Nx service target** (with its required dependencies configured)
    ```bash
-   # Using Docker
-   docker run -d \
-     -e POSTGRES_USER=fintech_user \
-     -e POSTGRES_PASSWORD=fintech_secure_password \
-     -e POSTGRES_DB=fintech_db \
-     -p 5432:5432 \
-     postgres:15-alpine
+   pnpm nx run user-service:serve
    ```
-
-3. **Set up Redis**
-   ```bash
-   docker run -d -p 6379:6379 redis:7-alpine
-   ```
-
-4. **Set up Kafka**
-   ```bash
-   docker run -d \
-     -e KAFKA_BROKER_ID=1 \
-     -e KAFKA_ZOOKEEPER_CONNECT=localhost:2181 \
-     -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092 \
-     -p 9092:9092 \
-     confluentinc/cp-kafka:7.5.0
-   ```
-
-5. **Start services individually**
-   ```bash
-   cd services/user-service
-   npm start
-   
-   # In another terminal
-   cd services/wallet-service
-   npm start
-   
-   # ... repeat for other services
-   ```
+   The frontend can be run separately with `PORT=3010 REACT_APP_API_URL=http://localhost:3000/api pnpm --dir services/web start`.
 
 ## API Endpoints
 
 ### Authentication
 - `POST /api/auth/login` - User login
 - `POST /api/auth/register` - User registration
-- `POST /api/auth/logout` - User logout
+- `POST /api/auth/verify-token` - Verify a token
+- `GET /api/profile/...` - User profile routes
 
 ### Wallet Management
 - `GET /api/wallet/user/:userId` - Get user wallets
@@ -198,57 +176,28 @@ A comprehensive microservices-based fintech platform built with Node.js, React, 
 - `POST /api/notification/email` - Send email
 - `POST /api/notification/sms` - Send SMS
 
+The API Gateway health endpoint is `GET /health`. The project does not currently
+serve Swagger UI at `/api-docs`; the endpoint reference is in [docs/API.md](docs/API.md).
+
 ## Environment Variables
 
-### API Gateway
+Compose reads the following optional values from a root `.env` file:
 ```env
-PORT=3000
-JWT_SECRET=your-super-secret-jwt-key
-USER_SERVICE_URL=http://localhost:3001
-WALLET_SERVICE_URL=http://localhost:3002
-TRANSACTION_SERVICE_URL=http://localhost:3003
-PAYMENT_SERVICE_URL=http://localhost:3004
-FRAUD_SERVICE_URL=http://localhost:3005
-NOTIFICATION_SERVICE_URL=http://localhost:3006
-```
-
-### Services
-```env
-DATABASE_URL=postgresql://fintech_user:fintech_secure_password@localhost:5432/fintech_db
-REDIS_URL=redis://localhost:6379
-KAFKA_BROKERS=localhost:9092
-JWT_SECRET=your-super-secret-jwt-key
-```
-
-### Payment Service
-```env
-NIBSS_API_URL=http://localhost:3007
-FRAUD_THRESHOLD=500000
-```
-
-### Notification Service
-```env
-EMAIL_USER=noreply@fintech.com
-EMAIL_PASSWORD=your-app-password
+JWT_SECRET=replace-this-development-secret
+EMAIL_USER=your-email@example.com
+EMAIL_PASSWORD=your-email-app-password
 TWILIO_ACCOUNT_SID=your-twilio-sid
 TWILIO_AUTH_TOKEN=your-twilio-token
-TWILIO_PHONE=your-twilio-phone
+TWILIO_PHONE=your-twilio-phone-number
 ```
+
+Compose configures service-to-service URLs and Kafka internally. PostgreSQL uses
+`fintech_user` / `fintech_secure_password` and database `fintech_db` as defined
+in `docker-compose.yaml`; `FRAUD_THRESHOLD` is currently set there to `500000`.
 
 ## Testing
 
-### Test User Credentials
-```
-Email: test@fintech.com
-Password: Test@123
-```
-
-### Sample Bank Accounts (NIBSS Mock)
-```
-Account: 0001234567, Bank: 001, Name: John Doe
-Account: 0009876543, Bank: 009, Name: Jane Smith
-Account: 0050123456, Bank: 005, Name: ABC Company
-```
+Run the service tests with Nx, for example `pnpm nx run user-service:test`.
 
 ## Project Structure
 
@@ -256,24 +205,22 @@ Account: 0050123456, Bank: 005, Name: ABC Company
 fintech-platform/
 ├── services/
 │   ├── api-gateway/
+│   ├── dlq-processor/
+│   ├── fraud-service/
+│   ├── ledger-service/
+│   ├── mock-services/nibss-mock/
+│   ├── notification-service/
+│   ├── payment-service/
+│   ├── transaction-service/
 │   ├── user-service/
 │   ├── wallet-service/
-│   ├── transaction-service/
-│   ├── payment-service/
-│   ├── fraud-service/
-│   └── notification-service/
-├── mock-services/
-│   └── nibss-mock/
-├── web/
-│   ├── src/
-│   │   ├── components/
-│   │   ├── pages/
-│   │   ├── services/
-│   │   ├── store/
-│   │   └── App.jsx
-│   └── package.json
-├── docker-compose.yml
-└── README.md
+│   ├── web/
+│   └── web-e2e/
+├── libs/shared-libs/
+├── docs/
+├── docker-compose.yaml
+├── package.json
+└── pnpm-workspace.yaml
 ```
 
 ## Key Features

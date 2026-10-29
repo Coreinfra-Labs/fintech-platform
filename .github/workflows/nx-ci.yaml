@@ -136,17 +136,10 @@ jobs:
       # AFFECTED E2E
       # ============================================
 
+      # Nx Cloud is disabled, so this workflow has no Nx CI finalizer.
       - name: Run affected E2E
         if: github.event_name != 'workflow_dispatch'
         run: |
           pnpm nx affected \
             -t e2e \
             --no-cloud
-
-      # ============================================
-      # NX FIX CI
-      # ============================================
-
-      - name: Nx fix CI
-        if: always()
-        run: pnpm exec nx fix-ci

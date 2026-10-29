@@ -1,157 +1,69 @@
-# Complete Nx Setup Guide
+# Nx Workspace Guide
 
-This document explains how Nx was integrated into an existing microservices project.
+Nx is already configured at the repository root. The pnpm workspace includes
+`services/*` and `libs/*`; service targets are defined in project files and
+Nx plugins provide additional targets. Use the existing project configuration
+instead of generating duplicate applications.
 
----
+## Prerequisites and install
 
-# Initialize Nx
+- Use Node.js `20.19+` or `22.12+` for local workspace commands; Vite 8 has
+  this requirement. Service containers currently use Node.js 18.
+- The Nx CI workflow pins Node.js 23.3.0 and pnpm 9.8.0. The lockfile uses
+  lockfile format 9.
+
+From the repository root:
 
 ```bash
-pnpm dlx nx@latest init
-```
-
----
-
-# Verify Nx Installation
-
-```bash
+pnpm install --frozen-lockfile
 pnpm nx report
 ```
 
-All official Nx packages should use the same version.
-
----
-
-# Install Nx Plugins
-
-Core plugins used in this project:
-
-| Plugin | Purpose |
-|---------|----------|
-| @nx/node | Node.js applications |
-| @nx/express | Express integration |
-| @nx/react | React frontend |
-| @nx/js | Shared libraries |
-| @nx/vite | Frontend bundler |
-| @nx/vitest | Unit testing |
-| @nx/playwright | End-to-end testing |
-| @nx/eslint | Linting |
-
-Upgrade all plugins:
+## Inspect projects and targets
 
 ```bash
-pnpm up -D @nx/* -w
-```
-
----
-
-# Project Graph
-
-Generate the dependency graph.
-
-```bash
+pnpm nx show projects
+pnpm nx show project user-service
+pnpm nx show project web
 pnpm nx graph
 ```
 
-Useful commands:
+The workspace includes the API Gateway, backend services, shared library, web
+application, and web e2e project. The frontend has a `build` target but no Nx
+`serve` target; use its package script for local interactive development:
 
 ```bash
-pnpm nx list
+PORT=3010 REACT_APP_API_URL=http://localhost:3000/api pnpm --dir services/web start
+```
 
+## Run targets
+
+Use the target names declared by each project. For example:
+
+```bash
+pnpm nx run user-service:serve
+pnpm nx run api-gateway:lint
+pnpm nx run transaction-service:test
+pnpm nx run web:build
+```
+
+Not every project defines the same targets. Inspect a project before using
+`run-many` with a target across all projects.
+
+## CI
+
+`.github/workflows/nx-ci.yaml` runs affected lint, test-ci, typecheck, build,
+and e2e targets for pull requests and pushes to `develop` or `main`. A manual
+workflow dispatch requests the full target set. Nx Cloud distribution is
+currently commented out; CI passes `--no-cloud`.
+
+The workflow currently pins pnpm 9.8.0 and Node.js 23.3.0. Keep those versions
+and the package manager/lockfile configuration in sync when changing CI.
+
+## Troubleshooting commands
+
+```bash
 pnpm nx reset
-
 NX_DAEMON=false pnpm nx graph --verbose
-```
-
----
-
-# Register Existing Services
-
-This repository already contains working microservices.
-
-Instead of generating new applications, each service is registered with Nx.
-
-Example:
-
-```json
-{
-  "$schema": "../../node_modules/nx/schemas/project-schema.json",
-  "name": "payment-service",
-  "projectType": "application",
-  "sourceRoot": "services/payment-service/src",
-  "targets": {}
-}
-```
-
-Verify registration:
-
-```bash
 pnpm nx show projects
-
-pnpm nx show project payment-service
-```
-
----
-
-# Common Commands
-
-Serve
-
-```bash
-pnpm nx serve payment-service
-```
-
-Build
-
-```bash
-pnpm nx build payment-service
-```
-
-Test
-
-```bash
-pnpm nx test payment-service
-```
-
-Lint
-
-```bash
-pnpm nx lint payment-service
-```
-
----
-
-# Nx Cloud
-
-Connect the workspace.
-
-```bash
-pnpm nx connect
-```
-
-Benefits:
-
-- Remote cache
-- Distributed execution
-- Faster CI
-- Nx Agents
-
----
-
-# Generate CI Workflow
-
-```bash
-pnpm nx g ci-workflow
-```
-
----
-
-# Verify Workspace
-
-```bash
-pnpm nx report
-
-pnpm nx show projects
-
-pnpm nx graph
 ```

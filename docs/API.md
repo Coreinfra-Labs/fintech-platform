@@ -1,5 +1,10 @@
 # API Documentation
 
+The API Gateway runs on port `3000`. All routes below require a bearer token
+except `POST /api/auth/login`, `POST /api/auth/register`, and
+`POST /api/auth/verify-token`. Ledger endpoints are not proxied by the gateway;
+call the Ledger Service directly on port `3008`.
+
 ## Authentication Endpoints
 
 ### Login
@@ -16,10 +21,13 @@ Content-Type: application/json
 **Response:**
 ```json
 {
+  "message": "Login successful",
   "user": {
     "id": "550e8400-e29b-41d4-a716-446655440000",
     "email": "user@example.com",
-    "name": "John Doe"
+    "firstName": "John",
+    "lastName": "Doe",
+    "kycStatus": "pending"
   },
   "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 }
@@ -33,10 +41,14 @@ Content-Type: application/json
 {
   "email": "newuser@example.com",
   "password": "SecurePassword123!",
-  "name": "Jane Doe",
-  "phone": "08012345678"
+  "firstName": "Jane",
+  "lastName": "Doe",
+  "phoneNumber": "08012345678"
 }
 ```
+
+Registration returns `201` with a `user` object and JWT. Token verification is
+available at `POST /api/auth/verify-token` with `{ "token": "<token>" }`.
 
 ## Wallet Endpoints
 
@@ -56,8 +68,8 @@ Authorization: Bearer <token>
       "accountType": "SAVINGS",
       "balance": "100000.00",
       "currency": "NGN",
-      "isFrozen": false,
-      "createdAt": "2024-01-15T10:30:00Z"
+      "availableBalance": "100000.00",
+      "isPrimary": true
     }
   ]
 }
@@ -70,9 +82,15 @@ Authorization: Bearer <token>
 Content-Type: application/json
 
 {
+  "userId": "uuid",
   "accountType": "SAVINGS"
 }
 ```
+
+The gateway requires a bearer token for wallet routes. Wallet creation requires
+the `userId` in the request body.
+
+`GET /api/wallet/:walletId` returns a single wallet.
 
 ## Transaction Endpoints
 
@@ -98,6 +116,16 @@ GET /api/transaction/:transactionId
 Authorization: Bearer <token>
 ```
 
+### List Transactions for a Wallet
+
+```http
+GET /api/transaction/wallet/:walletId
+Authorization: Bearer <token>
+```
+
+The route returns at most 50 transactions. It does not currently accept
+pagination parameters.
+
 ## Payment Endpoints
 
 ### Bank Transfer
@@ -107,7 +135,7 @@ Authorization: Bearer <token>
 Content-Type: application/json
 
 {
-  "sourceAccountNumber": "0001234567",
+  "sourceWalletId": "uuid",
   "destinationAccountNumber": "0009876543",
   "destinationBankCode": "009",
   "amount": 50000,
@@ -144,6 +172,9 @@ Content-Type: application/json
 }
 ```
 
+`GET /api/fraud/alerts/:userId` returns the user's latest fraud alerts (up to
+50).
+
 **Response:**
 ```json
 {
@@ -151,6 +182,35 @@ Content-Type: application/json
   "riskScore": 65,
   "alerts": ["HIGH_AMOUNT", "UNUSUAL_TIME"]
 }
+```
+
+## Notification Endpoints
+
+```http
+POST /api/notification/email
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{"to":"user@example.com","subject":"Notice","template":"transaction_completed","data":{}}
+```
+
+```http
+POST /api/notification/sms
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{"to":"+1234567890","message":"Your notification"}
+```
+
+## Ledger Service Endpoints
+
+These are called directly at `http://localhost:3008`; the API Gateway does not
+currently register a `/api/ledger` proxy route.
+
+```http
+POST /api/ledger/record
+POST /api/ledger/validate
+GET /api/ledger/entries/:transactionId
 ```
 
 ## Error Responses
@@ -178,17 +238,8 @@ Content-Type: application/json
 
 ## Rate Limiting
 
-- **Limit**: 100 requests per minute per IP
-- **Headers**: Rate limit info returned in response headers
-- **Status**: 429 when limit exceeded
-
-## Pagination
-
-All list endpoints support pagination:
-
-```http
-GET /api/transaction/wallet/:walletId?page=1&limit=20
-```
+- **Limit**: 100 requests per minute per IP by default (`RATE_LIMIT` can override it)
+- **Status**: 429 when exceeded
 
 ## Response Status Codes
 

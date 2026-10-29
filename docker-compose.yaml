@@ -348,7 +348,7 @@ services:
     build:
       context: ./services/web
     ports:
-      - "3010:3000"
+      - "3010:80"
     environment:
       REACT_APP_API_URL: http://localhost:3000/api
     depends_on:
@@ -356,7 +356,7 @@ services:
     networks:
       - fintech-network
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:3000/ || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:80/ || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 10
