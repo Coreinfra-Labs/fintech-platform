@@ -13,21 +13,25 @@ fintech-platform/
 │
 ├── services/
 │   ├── api-gateway
-│   ├── payment-service
-│   ├── transaction-service
-│   ├── notification-service
-│   ├── fraud-service
 │   ├── user-service
 │   ├── wallet-service
-│   └── mock-service
+│   ├── transaction-service
+│   ├── ledger-service
+│   ├── payment-service
+│   ├── fraud-service
+│   ├── notification-service
+│   ├── dlq-processor
+│   ├── mock-services/nibss-mock
+│   ├── web
+│   └── web-e2e
 │
-├── libs/
-│   ├── auth
-│   ├── config
-│   ├── kafka
-│   ├── logger
-│   ├── shared-types
-│   └── utils
+├── libs/shared-libs/
+│   ├── constants
+│   ├── middleware
+│   ├── patterns
+│   ├── services
+│   ├── utils
+│   └── validators
 │
 ├── docs/
 └── nx.json
@@ -37,38 +41,46 @@ fintech-platform/
 
 ## Shared Libraries
 
-Reusable code lives inside `libs/`.
+Reusable code is published as the local `fintech-shared-libs` workspace package.
 
-Examples include:
+It currently contains:
 
-- Authentication middleware
-- Logging
-- Configuration
-- Kafka client
-- Shared TypeScript types
-- Helper functions
+- Authentication, error-handling, and rate-limit middleware
+- Kafka client, topics, and message validators
+- Logging utilities
+- Outbox/inbox and DLQ retry-policy helpers
 
-This eliminates duplicate code while ensuring every service uses the same implementation.
+There are no separate `auth`, `config`, `kafka`, `logger`, or `shared-types` Nx libraries.
 
 ---
 
 ## Microservice Architecture
 
 ```text
-                     API Gateway
-                          │
-        ┌─────────────────┼─────────────────┐
-        │                 │                 │
-   Payment          Transaction      Notification
-        │
-      Wallet
-        │
-      User
-        │
-      Fraud
+Browser ──HTTP──> Web (3010) ──HTTP──> API Gateway (3000)
+                                        ├── User (3001)
+                                        ├── Wallet (3002)
+                                        ├── Transaction (3003)
+                                        ├── Payment (3004)
+                                        ├── Fraud (3005)
+                                        ├── Notification (3006)
+                                        └── (gateway does not proxy Ledger)
 
-             Shared Libraries (libs/)
+Transaction ──Kafka: transactions──> Transaction Consumer ──HTTP──> Ledger (3008)
+                                  └─> Fraud Consumer
+Transaction ──Kafka: transaction-completed──> Notification (startup currently fails)
+Fraud ──Kafka: fraud-alert──> Notification (startup currently fails)
+Payment Service ──HTTP──> NIBSS Mock (3007)
+DLQ Processor startup currently fails on its second topic subscription
+
+PostgreSQL, Redis, and Kafka are shared infrastructure in docker-compose.yaml.
 ```
+
+The transaction consumer completes a transaction without ledger settlement when
+`LEDGER_SERVICE_URL` is unset. Notification Service has the same multiple-topic
+startup issue as DLQ Processor. The payment route has a Kafka publish hook, but
+the payment service startup does not initialize Kafka, so payment events are
+not currently published.
 
 ---
 
@@ -89,11 +101,9 @@ This eliminates duplicate code while ensuring every service uses the same implem
 
 ## Overview
 
-This fintech platform uses Apache Kafka for asynchronous event-driven communication between microservices. The architecture now includes:
-- **Double-entry bookkeeping ledger** for accurate transaction settlement
-- **Dead Letter Queue (DLQ)** for handling failed messages with retry logic
-- **Message schema validation** to ensure data integrity
-- **User-wallet mapping** for notification delivery
+Kafka is used by transaction, fraud, and notification consumers. Topic names and
+consumer-group identifiers are centralized in
+`libs/shared-libs/constants/kafkaTopics.js`.
 
 ## Microservices
 
@@ -103,24 +113,33 @@ This fintech platform uses Apache Kafka for asynchronous event-driven communicat
 - Calls Ledger Service for settlement
 - Publishes to `transaction-completed` on success
 
-### 2. Ledger Service (Port 3008) **NEW**
-- Records double-entry bookkeeping entries
-- Updates wallet balances via Wallet Service
-- Validates ledger consistency
-- Supports TRANSFER, DEPOSIT, WITHDRAWAL, PAYMENT transaction types
+### 2. Ledger Service (Port 3008)
+- Records paired ledger entries and requests wallet balance updates
+- Exposes record, validate, and transaction-entry routes
+- Is called by the transaction consumer when `LEDGER_SERVICE_URL` is configured
 
 ### 3. Fraud Service (Port 3005)
 - Consumes `transactions` topic
 - Performs fraud scoring
-- Creates alerts if risk score >= threshold
-- Sends failed messages to `fraud-check-dlq`
+- Creates alerts and publishes `fraud-alert` events for scores above the configured threshold
+- Consumer errors are logged; the consumer does not currently send them to a DLQ
 
 ### 4. Notification Service (Port 3006)
 - Consumes `transaction-completed` topic
-- Maps wallet ID → user ID → contact info
-- Sends email and SMS notifications
-- Sends failed messages to `notification-dlq`
+- Subscribes to `transaction-completed` and `fraud-alert`
+- Attempts email and SMS delivery when contact details and credentials are available
+- Delivery and lookup errors are logged; the consumer does not currently send them to a DLQ
 
 ## Topics & Consumers
+
+| Topic | Producer | Consumer | Current behavior |
+| --- | --- | --- | --- |
+| `transactions` | Transaction Service | Transaction Service, Fraud Service | Settlement processing and fraud scoring |
+| `transaction-completed` | Transaction Service | Notification Service | Completion notification |
+| `fraud-alert` | Fraud Service | Notification Service | Fraud alert email attempt |
+| `transaction-failed-dlq`, `fraud-check-dlq`, `notification-dlq`, `payment-failed-dlq` | Service-specific hooks | DLQ Processor | Logs received messages; no retry/redrive |
+
+`payment-initiated` and `payment-completed` are declared topic constants, but
+the Payment Service does not currently start a Kafka producer or consumer.
 
 
