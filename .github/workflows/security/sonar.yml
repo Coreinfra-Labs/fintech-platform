@@ -1,4 +1,4 @@
-name: Security-SonarQube
+name: SAST-SonarQube
 
 on:
   pull_request:
