@@ -3,6 +3,7 @@
   "name": "fintech-platform",
   "version": "0.0.0",
   "private": true,
+  "packageManager": "pnpm@9.8.0",
   "devDependencies": {
     "@eslint/js": "^9.8.0",
     "@nx/devkit": "23.2.1",
