@@ -17,15 +17,19 @@ successful production deployment.
 - [x] Shared Kafka client, topic constants, and message validators exist.
 - [x] Transaction Service publishes and consumes `transactions`.
 - [x] Fraud Service consumes `transactions` and can publish `fraud-alert`.
-- [ ] Notification Service can consume both configured topics. KafkaJS currently
-	rejects its second subscription after `consumer.run()` starts.
+- [x] Notification Service batch-subscribes to payment initiation, transaction
+	completion, payment completion, and fraud-alert topics.
 - [x] Transaction Service can publish ledger failures to
 	`transaction-failed-dlq`.
-- [ ] DLQ Processor can consume all declared dead-letter topics. It currently
-	fails on the second subscription and has no retry/redrive implementation.
-- [ ] Fraud consumer callback failures are published to its DLQ topic.
-- [ ] Payment Service starts Kafka and publishes its declared payment events.
-- [ ] Notification consumer user lookup matches a registered User Service route.
+- [x] DLQ Processor batch-subscribes to all declared dead-letter topics.
+- [x] Fraud, Notification, and payment settlement failures publish to their DLQ
+	topics.
+- [x] PAYMENT transaction events publish initiation and completion topics.
+- [x] Notification recipient lookup uses wallet ownership and the User Service
+	profile route.
+- [ ] DLQ Processor retries or redrives messages; it currently logs them.
+- [ ] Standalone Payment Service starts Kafka; payment topic events are emitted
+	by the Transaction Service instead.
 - [ ] Transaction completion is prevented when ledger settlement is disabled.
 
 ## Deployment Readiness

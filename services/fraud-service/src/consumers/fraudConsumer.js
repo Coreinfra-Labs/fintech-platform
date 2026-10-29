@@ -1,6 +1,7 @@
 
 const { createLogger, kafkaTopics } = require('fintech-shared-libs');
 const { FraudAlert } = require('../models');
+const { DLQService } = require('../services/dlqService');
 
 const logger = createLogger('Fraud-Consumer');
 
@@ -12,6 +13,8 @@ const HIGH_RISK_THRESHOLD = Number(
 );
 
 const startFraudConsumer = async (kafkaService) => {
+  const dlqService = new DLQService(kafkaService);
+
   await kafkaService.subscribeToTopic(
     kafkaTopics.TOPICS.TRANSACTIONS,
     async (data) => {
@@ -50,6 +53,7 @@ if (
             kafkaTopics.TOPICS.FRAUD_ALERT,
             {
               transactionId: data.transactionId,
+              sourceWalletId: data.sourceWalletId,
               riskScore,
               alertType: triggeredRules[0],
               triggeredRules,
@@ -60,6 +64,12 @@ if (
         }
       } catch (error) {
         logger.error(`Fraud consumer error: ${error.message}`, error);
+        await dlqService.sendToDLQ(
+          kafkaTopics.TOPICS.FRAUD_CHECK_DLQ,
+          data,
+          error,
+          { originalTopic: kafkaTopics.TOPICS.TRANSACTIONS }
+        );
       }
     }
   );

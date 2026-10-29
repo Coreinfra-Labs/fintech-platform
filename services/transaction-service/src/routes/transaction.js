@@ -79,6 +79,20 @@ router.post('/create', async (req, res) => {
       }
 
       await kafkaService.publishEvent(kafkaTopics.TOPICS.TRANSACTIONS, validation.value);
+
+      if (transaction.type === 'PAYMENT') {
+        await kafkaService.publishEvent(kafkaTopics.TOPICS.PAYMENT_INITIATED, {
+          transactionId: transaction.id,
+          type: transaction.type,
+          amount: transaction.amount,
+          sourceWalletId: transaction.sourceWalletId,
+          destinationWalletId: transaction.destinationWalletId,
+          destinationAccountNumber: transaction.destinationAccountNumber,
+          destinationBankCode: transaction.destinationBankCode,
+          status: 'PENDING',
+          timestamp: new Date(),
+        });
+      }
     } else {
       logger.warn('Kafka service not initialized; transaction event not published');
     }

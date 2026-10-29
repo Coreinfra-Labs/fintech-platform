@@ -62,6 +62,7 @@ router.get('/:walletId', async (req, res) => {
 
     res.json({
       id: wallet.id,
+      userId: wallet.userId,
       accountNumber: wallet.accountNumber,
       accountType: wallet.accountType,
       currency: wallet.currency,

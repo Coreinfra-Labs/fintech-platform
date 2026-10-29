@@ -15,6 +15,7 @@ class KafkaService {
     this.producer = null;
     this.consumer = null;
     this.consumerRunning = false;
+    this.topicHandlers = new Map();
   }
 
   async connect() {
@@ -74,12 +75,31 @@ class KafkaService {
   }
 
   async subscribeToTopic(topic, callback) {
+    return this.subscribeToTopics([{ topic, callback }]);
+  }
+
+  async subscribeToTopics(subscriptions) {
     try {
       if (!this.consumer) {
         throw new Error('Consumer not initialized. Provide groupId in constructor.');
       }
 
-      await this.consumer.subscribe({ topic, fromBeginning: false });
+      if (this.consumerRunning) {
+        throw new Error('Cannot add subscriptions after the Kafka consumer has started.');
+      }
+
+      if (!Array.isArray(subscriptions) || subscriptions.length === 0) {
+        throw new Error('At least one topic subscription is required.');
+      }
+
+      for (const { topic, callback } of subscriptions) {
+        if (!topic || typeof callback !== 'function') {
+          throw new Error('Each subscription requires a topic and callback.');
+        }
+
+        await this.consumer.subscribe({ topic, fromBeginning: false });
+        this.topicHandlers.set(topic, callback);
+      }
 
       this.consumerRunning = true;
       this.consumer
@@ -99,7 +119,13 @@ class KafkaService {
                 return;
               }
 
-              await callback(data);
+              const handler = this.topicHandlers.get(topic);
+              if (!handler) {
+                logger.warn(`No handler registered for topic: ${topic}`);
+                return;
+              }
+
+              await handler(data);
             } catch (error) {
               logger.error(`Error processing message from ${topic}: ${error.message}`);
               throw error;
@@ -107,13 +133,15 @@ class KafkaService {
           },
         })
         .catch((error) => {
-          logger.error(`Consumer run failed for ${topic}: ${error.message}`);
+          logger.error(`Consumer run failed: ${error.message}`);
           this.consumerRunning = false;
         });
 
-      logger.info(`Subscribed to topic: ${topic}`);
+      for (const { topic } of subscriptions) {
+        logger.info(`Subscribed to topic: ${topic}`);
+      }
     } catch (error) {
-      logger.error(`Failed to subscribe to ${topic}: ${error.message}`);
+      logger.error(`Failed to subscribe to Kafka topics: ${error.message}`);
       throw error;
     }
   }

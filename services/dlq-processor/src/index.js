@@ -26,11 +26,12 @@ const startProcessor = async () => {
     await kafkaService.connect();
     logger.info('Kafka connected for DLQ processing');
 
-    for (const topic of dlqTopics) {
-      await kafkaService.subscribeToTopic(topic, async (message) => {
+    await kafkaService.subscribeToTopics(dlqTopics.map((topic) => ({
+      topic,
+      callback: async (message) => {
         logger.warn(`DLQ message received from ${topic}`, { topic, message });
-      });
-    }
+      },
+    })));
 
     server = app.listen(PORT, () => {
       logger.info(`DLQ Processor running on port ${PORT}`);

@@ -21,6 +21,7 @@ describe('Fraud Consumer', () => {
         consumerCallback = callback;
         return Promise.resolve();
       }),
+      publishEvent: jest.fn().mockResolvedValue(undefined),
     };
 
     FraudAlert.count = jest.fn().mockResolvedValue(0);
@@ -141,5 +142,18 @@ describe('Fraud Consumer', () => {
     );
 
     jest.useRealTimers();
+  });
+
+  it('should send consumer failures to the fraud-check DLQ', async () => {
+    FraudAlert.count.mockRejectedValue(new Error('Database unavailable'));
+
+    await startFraudConsumer(mockKafkaService);
+    const data = { transactionId: 'txn-failed', amount: 100, type: 'TRANSFER' };
+    await consumerCallback(data);
+
+    expect(mockKafkaService.publishEvent).toHaveBeenCalledWith(
+      'fraud-check-dlq',
+      expect.objectContaining({ originalMessage: data })
+    );
   });
 });
