@@ -51,10 +51,26 @@
     }
   ],
   "targetDefaults": {
+    "build": {
+      "cache": true
+    },
     "test": {
+      "cache": true,
       "dependsOn": [
         "^build"
       ]
+    },
+    "test-ci": {
+      "cache": true,
+      "dependsOn": [
+        "^build"
+      ]
+    },
+    "lint": {
+      "cache": true
+    },
+    "typecheck": {
+      "cache": true
     }
   },
   "generators": {
@@ -80,6 +96,7 @@
       "{workspaceRoot}/.github/workflows/nx-ci.yml"
     ],
     "default": [
+      "{projectRoot}/**/*",
       "sharedGlobals"
     ]
   }
