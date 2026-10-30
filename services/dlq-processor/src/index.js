@@ -29,10 +29,8 @@ const startProcessor = async () => {
     await kafkaService.subscribeToTopics(dlqTopics.map((topic) => ({
       topic,
       callback: async (message) => {
-        logger.warn(`DLQ message received from ${topic}`, {
-          topic,
-          messageId: message?.messageId,
-        });
+
+        logger.warn(`DLQ message received from ${topic}`, { topic, message });
       },
     })));
 
