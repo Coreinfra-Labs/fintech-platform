@@ -23,7 +23,7 @@ router.post('/', (req, res) => {
     const account = accounts[accountNumber];
 
     if (account && account.bank === bankCode) {
-      logger.info(`Account validated: ${accountNumber}`);
+      logger.info('Account validated');
       res.json({
         valid: true,
         accountNumber,
@@ -31,7 +31,7 @@ router.post('/', (req, res) => {
         bankCode,
       });
     } else {
-      logger.warn(`Invalid account: ${accountNumber}`);
+      logger.warn('Invalid account');
       res.status(400).json({
         valid: false,
         error: 'Account not found',

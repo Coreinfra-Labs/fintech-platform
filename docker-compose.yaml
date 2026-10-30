@@ -94,7 +94,8 @@ services:
   # NIBSS Mock Service
   nibss-mock:
     build:
-      context: ./services/mock-services/nibss-mock
+      context: .
+      dockerfile: services/mock-services/nibss-mock/Dockerfile
     ports:
       - "3007:3007"
     environment:
@@ -110,7 +111,8 @@ services:
   # User Service
   user-service:
     build:
-      context: ./services/user-service
+      context: .
+      dockerfile: services/user-service/Dockerfile
     ports:
       - "3001:3001"
     environment:
@@ -134,7 +136,8 @@ services:
   # Wallet Service
   wallet-service:
     build:
-      context: ./services/wallet-service
+      context: .
+      dockerfile: services/wallet-service/Dockerfile
     ports:
       - "3002:3002"
     environment:
@@ -178,7 +181,8 @@ services:
   # Transaction Service
   transaction-service:
     build:
-      context: ./services/transaction-service
+      context: .
+      dockerfile: services/transaction-service/Dockerfile
     ports:
       - "3003:3003"
     environment:
@@ -205,7 +209,8 @@ services:
   # Payment Service
   payment-service:
     build:
-      context: ./services/payment-service
+      context: .
+      dockerfile: services/payment-service/Dockerfile
     ports:
       - "3004:3004"
     environment:
@@ -228,7 +233,8 @@ services:
   # Fraud Service
   fraud-service:
     build:
-      context: ./services/fraud-service
+      context: .
+      dockerfile: services/fraud-service/Dockerfile
     ports:
       - "3005:3005"
     environment:
@@ -254,7 +260,8 @@ services:
   # Notification Service
   notification-service:
     build:
-      context: ./services/notification-service
+      context: .
+      dockerfile: services/notification-service/Dockerfile
     ports:
       - "3006:3006"
     environment:
@@ -286,7 +293,8 @@ services:
   # API Gateway
   api-gateway:
     build:
-      context: ./services/api-gateway
+      context: .
+      dockerfile: services/api-gateway/Dockerfile
     ports:
       - "3000:3000"
     environment:

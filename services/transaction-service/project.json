@@ -4,6 +4,12 @@
   "name": "transaction-service",
   "sourceRoot": "services/transaction-service/src",
   "projectType": "application",
+  "tags":[
+     "type:service",
+    "scope:backend"
+  ],
+
+
   "targets": {
     "serve": {
       "executor": "nx:run-commands",
@@ -37,7 +43,7 @@
       "executor": "nx:run-commands",
       "cache": true,
       "options": {
-        "command": "jest",
+        "command": "jest --rootDir . --forceExit",
         "cwd": "services/transaction-service"
       }
     }

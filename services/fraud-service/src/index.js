@@ -1,5 +1,5 @@
 require('dotenv').config();
-require('./otel');
+const { shutdown: shutdownTelemetry } = require('./otel');
 const express = require('express');
 const cors = require('cors');
 const { createLogger, KafkaService, errorHandler, kafkaTopics } = require('fintech-shared-libs');
@@ -60,15 +60,15 @@ const setupGracefulShutdown = () => {
       logger.info(`Received ${signal}, shutting down gracefully...`);
       
       if (server) {
-        server.close(() => {
-          logger.info('HTTP server closed');
-        });
+        await new Promise((resolve) => server.close(resolve));
+        logger.info('HTTP server closed');
       }
 
       if (kafkaService) {
         await kafkaService.disconnect();
       }
 
+      await shutdownTelemetry();
       process.exit(0);
     });
   });

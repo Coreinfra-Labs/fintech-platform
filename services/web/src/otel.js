@@ -9,7 +9,7 @@ const provider = new WebTracerProvider({
   spanProcessors: [
     new BatchSpanProcessor(
       new OTLPTraceExporter({
-        url: 'http://otel-collector:4318/v1/traces',
+        url: `${window.location.origin}/otel/v1/traces`,
       })
     ),
   ],

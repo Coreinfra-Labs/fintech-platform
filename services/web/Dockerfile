@@ -1,4 +1,3 @@
-# Stage 1: Build the React app
 FROM node:18-alpine AS builder
 WORKDIR /app
 
@@ -17,6 +16,7 @@ RUN rm -rf ./*
 
 # Copy build output from builder stage
 COPY --from=builder /app/build .
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # Expose port 80 for serving
 EXPOSE 80

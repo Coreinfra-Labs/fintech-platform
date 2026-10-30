@@ -1,13 +1,28 @@
-FROM node:18-alpine
+FROM node:20-alpine AS build
 
 WORKDIR /app
 
-COPY package*.json ./
+RUN corepack enable
 
-RUN npm install --production
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY libs ./libs
+COPY services ./services
 
-COPY src ./src
+RUN pnpm install --frozen-lockfile
+
+FROM node:20-alpine AS production
+
+WORKDIR /app
+
+RUN corepack enable
+
+COPY --from=build --chown=node:node /app /app
+
+ENV NODE_ENV=production
+ENV PORT=3007
+
+USER node
 
 EXPOSE 3007
 
-CMD ["npm", "start"]
+CMD ["node", "services/mock-services/nibss-mock/src/index.js"]

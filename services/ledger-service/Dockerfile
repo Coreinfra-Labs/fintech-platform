@@ -1,19 +1,28 @@
-FROM node:18-alpine
+FROM node:20-alpine AS build
 
 WORKDIR /app
 
-COPY package.json ./
-COPY libs/shared-libs ./libs/shared-libs
-RUN npm install --omit=dev
+RUN corepack enable
 
-COPY services/ledger-service/src ./services/ledger-service/src
-COPY services/ledger-service/db ./services/ledger-service/db
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY libs ./libs
+COPY services ./services
+
+RUN pnpm install --frozen-lockfile
+
+FROM node:20-alpine AS production
+
+WORKDIR /app
+
+RUN corepack enable
+
+COPY --from=build --chown=node:node /app /app
 
 ENV NODE_ENV=production
 ENV PORT=3008
 
+USER node
+
 EXPOSE 3008
 
 CMD ["node", "services/ledger-service/src/index.js"]
-
-

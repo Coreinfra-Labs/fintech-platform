@@ -1,5 +1,5 @@
 require('dotenv').config();
-require('./otel');
+const { shutdown: shutdownTelemetry } = require('./otel');
 const express = require('express');
 const proxy = require('express-http-proxy');
 const cors = require('cors');
@@ -92,11 +92,11 @@ const setupGracefulShutdown = () => {
       logger.info(`Received ${signal}, shutting down gracefully...`);
 
       if (server) {
-        server.close(() => {
-          logger.info('HTTP server closed');
-        });
+        await new Promise((resolve) => server.close(resolve));
+        logger.info('HTTP server closed');
       }
 
+      await shutdownTelemetry();
       process.exit(0);
     });
   });

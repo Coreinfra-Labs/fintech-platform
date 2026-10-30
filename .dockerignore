@@ -1,0 +1,16 @@
+.git
+.nx
+node_modules
+**/node_modules
+coverage
+**/coverage
+dist
+**/dist
+build
+**/build
+out-tsc
+**/out-tsc
+test-output
+**/test-output
+.env
+**/.env

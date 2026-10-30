@@ -2,6 +2,14 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "name": "web",
   "targets": {
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "options": {
+        "command": "../../node_modules/.bin/tsc --build --emitDeclarationOnly",
+        "cwd": "services/web"
+      }
+    },
     "build": {
       "executor": "nx:run-commands",
       "options": {

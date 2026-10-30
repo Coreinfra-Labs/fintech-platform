@@ -11,13 +11,13 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets:
-          - 'api-gateway:3000'
-          - 'user-service:3001'
-          - 'wallet-service:3002'
-          - 'transaction-service:3003'
-          - 'payment-service:3004'
-          - 'fraud-service:3005'
-          - 'notification-service:3006'
-          - 'ledger-service:3008'
-          - 'dlq-processor:3009'
-          - 'web:3000'
+          - 'api-gateway:9464'
+          - 'user-service:9464'
+          - 'wallet-service:9464'
+          - 'transaction-service:9464'
+          - 'payment-service:9464'
+          - 'fraud-service:9464'
+          - 'notification-service:9464'
+          - 'ledger-service:9464'
+          - 'dlq-processor:9464'
+          - 'nibss-mock:9464'
