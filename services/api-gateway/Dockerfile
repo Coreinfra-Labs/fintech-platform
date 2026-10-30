@@ -1,13 +1,31 @@
-FROM node:18-alpine
+
+FROM node:20-alpine AS build
+
+LABEL maintainer="qzee-dev"
 
 WORKDIR /app
 
-COPY package*.json ./
+RUN corepack enable
 
-RUN npm install --production
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 
-COPY src ./src
+COPY libs ./libs
+COPY services ./services
+
+RUN pnpm install --frozen-lockfile
+
+FROM node:20-alpine AS production
+
+WORKDIR /app
+
+RUN corepack enable
+
+COPY --from=build --chown=node:node /app /app
+
+ENV NODE_ENV=production
+
+USER node
 
 EXPOSE 3000
 
-CMD ["npm", "start"]
+CMD ["node", "services/api-gateway/src/index.js"]

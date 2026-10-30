@@ -3,7 +3,11 @@
   "name": "dlq-processor",
   "sourceRoot": "services/dlq-processor/src",
   "projectType": "application",
-  "tags": ["type:service", "scope:backend"],
+  "tags": [
+    "type:service",
+   "scope:backend"
+  ],
+
   "targets": {
     "serve": {
       "executor": "nx:run-commands",
@@ -37,7 +41,7 @@
       "executor": "nx:run-commands",
       "cache": true,
       "options": {
-        "command": "jest --forceExit",
+        "command": "jest --rootDir . --forceExit",
         "cwd": "services/dlq-processor"
       }
     },
@@ -45,7 +49,7 @@
       "executor": "nx:run-commands",
       "cache": true,
       "options": {
-        "command": "jest --forceExit --ci --coverage",
+        "command": "jest --rootDir . --forceExit --ci --coverage",
         "cwd": "services/dlq-processor"
       }
     }

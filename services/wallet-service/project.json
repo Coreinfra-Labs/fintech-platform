@@ -4,6 +4,7 @@
   "sourceRoot": "services/wallet-service/src",
   "projectType": "application",
   "tags": ["type:service", "scope:backend"],
+
   "targets": {
     "serve": {
       "executor": "nx:run-commands",
@@ -37,7 +38,7 @@
       "executor": "nx:run-commands",
       "cache": true,
       "options": {
-        "command" : "jest --passWithNoTests",
+        "command" : "jest --rootDir . --passWithNoTests",
         "cwd": "services/wallet-service"
       }
     },
@@ -45,7 +46,7 @@
       "executor": "nx:run-commands",
       "cache": true,
       "options": {
-        "command": "jest --forceExit --ci --coverage --passWithNoTests",
+        "command": "jest --rootDir . --forceExit --ci --coverage --passWithNoTests",
         "cwd": "services/wallet-service"
       }
     }

@@ -273,7 +273,7 @@ const updateWalletBalance = async (walletId, amount) => {
       },
       { timeout: 5000 }
     );
-    logger.debug(`Wallet ${walletId} balance updated by ${amount}`);
+    logger.debug('Wallet balance updated');
   } catch (error) {
     logger.error(
       `Failed to update wallet ${walletId} balance: ${error.message}`

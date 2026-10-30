@@ -1,5 +1,5 @@
 require('dotenv').config();
-require('./otel');
+const { shutdown: shutdownTelemetry } = require('./otel');
 const express = require('express');
 const cors = require('cors');
 const { createLogger, errorHandler } = require('fintech-shared-libs');
@@ -29,6 +29,7 @@ app.use(errorHandler);
 
 // Start server
 const PORT = process.env.PORT || 3001;
+let server = null;
 
 const startServer = async () => {
   try {
@@ -38,7 +39,7 @@ const startServer = async () => {
     await sequelize.sync({ alter: false });
     logger.info('Database models synced');
 
-    app.listen(PORT, () => {
+    server = app.listen(PORT, () => {
       logger.info(`User Service running on port ${PORT}`);
     });
   } catch (error) {
@@ -48,5 +49,19 @@ const startServer = async () => {
 };
 
 startServer();
+
+for (const signal of ['SIGTERM', 'SIGINT']) {
+  process.on(signal, async () => {
+    logger.info(`Received ${signal}, shutting down gracefully...`);
+
+    if (server) {
+      await new Promise((resolve) => server.close(resolve));
+    }
+
+    await sequelize.close();
+    await shutdownTelemetry();
+    process.exit(0);
+  });
+}
 
 module.exports = app;

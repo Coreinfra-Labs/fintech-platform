@@ -2,19 +2,18 @@ const winston = require('winston');
 const { trace, context } = require('@opentelemetry/api');
 
 const getTraceFields = () => {
-  try {
-    const span = trace.getSpan(context.active());
-    if (!span) {
-      return {};
-    }
-    const sc = span.context();
-    return {
-      trace_id: sc.traceId,
-      span_id: sc.spanId,
-    };
-  } catch (error) {
+  const span = trace.getSpan(context.active());
+  if (!span) {
     return {};
   }
+
+  const sc = span.spanContext();
+  return {
+    trace_id: sc.traceId,
+    span_id: sc.spanId,
+    'trace.id': sc.traceId,
+    'span.id': sc.spanId,
+  };
 };
 
 const createLogger = (serviceName) => {

@@ -1,5 +1,5 @@
+const { shutdown: shutdownTelemetry } = require('./otel');
 const express = require('express');
-require('./otel');
 const { createLogger, KafkaService, kafkaTopics } = require('fintech-shared-libs');
 
 const app = express();
@@ -29,6 +29,7 @@ const startProcessor = async () => {
     await kafkaService.subscribeToTopics(dlqTopics.map((topic) => ({
       topic,
       callback: async (message) => {
+
         logger.warn(`DLQ message received from ${topic}`, { topic, message });
       },
     })));
@@ -51,15 +52,15 @@ const setupGracefulShutdown = () => {
       logger.info(`Received ${signal}, shutting down gracefully...`);
 
       if (server) {
-        server.close(() => {
-          logger.info('HTTP server closed');
-        });
+        await new Promise((resolve) => server.close(resolve));
+        logger.info('HTTP server closed');
       }
 
       if (kafkaService) {
         await kafkaService.disconnect();
       }
 
+      await shutdownTelemetry();
       process.exit(0);
     });
   });

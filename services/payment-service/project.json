@@ -1,9 +1,13 @@
+
 {
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "name": "payment-service",
   "sourceRoot": "services/payment-service/src",
   "projectType": "application",
-  "tags": ["type:service", "scope:backend"],
+  "tags": [
+    "type:service",
+    "scope:backend"
+  ],
   "targets": {
     "serve": {
       "executor": "nx:run-commands",
@@ -21,8 +25,10 @@
     },
     "build": {
       "executor": "nx:run-commands",
+      "cache": false,
       "options": {
-        "command": "echo \"No build step required for Node.js service\""
+        "command": "echo \"No compilation required for payment-service\"",
+        "cwd": "services/payment-service"
       }
     },
     "lint": {
@@ -37,7 +43,7 @@
       "executor": "nx:run-commands",
       "cache": true,
       "options": {
-        "command": "jest --forceExit",
+        "command": "jest --rootDir . --forceExit",
         "cwd": "services/payment-service"
       }
     },
@@ -45,7 +51,7 @@
       "executor": "nx:run-commands",
       "cache": true,
       "options": {
-        "command": "jest --forceExit --ci --coverage",
+        "command": "jest --rootDir . --forceExit --ci --coverage",
         "cwd": "services/payment-service"
       }
     }

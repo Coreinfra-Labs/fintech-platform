@@ -3,6 +3,11 @@
   "name": "api-gateway",
   "sourceRoot": "services/api-gateway/src",
   "projectType": "application",
+  "tags": [
+    "type:service",
+    "scope:backend"
+  ],
+
   "targets": {
     "serve": {
       "executor": "nx:run-commands",
@@ -36,7 +41,7 @@
       "executor": "nx:run-commands",
       "cache": true,
       "options": {
-        "command": "jest",
+        "command": "jest --rootDir .",
         "cwd": "services/api-gateway"
       }
     }

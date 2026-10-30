@@ -5,6 +5,7 @@
   "sourceRoot": "services/mock-services/nibss-mock/src",
   "projectType": "application",
   "tags": ["type:service", "scope:backend"],
+
   "targets": {
     "serve": {
       "executor": "nx:run-commands",
@@ -38,7 +39,7 @@
       "executor": "nx:run-commands",
       "cache": true,
       "options": {
-        "command": "jest --forceExit --passWithNoTests",
+        "command": "jest --rootDir . --forceExit --passWithNoTests",
         "cwd": "services/mock-services/nibss-mock"
       }
     },
@@ -46,9 +47,10 @@
       "executor": "nx:run-commands",
       "cache": true,
       "options": {
-        "command": "jest --forceExit --ci --coverage",
+        "command": "jest --rootDir . --forceExit --ci --coverage",
         "cwd": "services/mock-services/nibss-mock"
       }
     }
   }
+
 }
