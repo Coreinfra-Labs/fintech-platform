@@ -1,12 +1,13 @@
 name: nx-ci
 
 on:
-  pull_request:
-
-  push:
-    branches:
-      - develop
-      - main
+  workflow_call:
+    inputs:
+      full_ci:
+        description: Run CI for all Nx projects
+        required: false
+        default: false
+        type: boolean
 
   workflow_dispatch:
     inputs:
@@ -102,7 +103,7 @@ jobs:
       # ============================================
 
       - name: Run full monorepo CI
-        if: github.event_name == 'workflow_dispatch'
+        if: inputs.full_ci
         run: |
           pnpm nx run-many \
             -t lint,test-ci,typecheck,build \
@@ -114,7 +115,7 @@ jobs:
       # ============================================
 
       - name: Run all E2E tests
-        if: github.event_name == 'workflow_dispatch'
+        if: inputs.full_ci
         run: |
           pnpm nx run-many \
             -t e2e \
@@ -126,7 +127,7 @@ jobs:
       # ============================================
 
       - name: Run affected CI
-        if: github.event_name != 'workflow_dispatch'
+        if: ${{ !inputs.full_ci }}
         run: |
           pnpm nx affected \
             -t lint,test-ci,typecheck,build \
@@ -138,7 +139,7 @@ jobs:
 
       # Nx Cloud is disabled, so this workflow has no Nx CI finalizer.
       - name: Run affected E2E
-        if: github.event_name != 'workflow_dispatch'
+        if: ${{ !inputs.full_ci }}
         run: |
           pnpm nx affected \
             -t e2e \

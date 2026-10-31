@@ -1,20 +1,7 @@
 name: SAST-SonarQube
 
 on:
-  pull_request:
-    branches:
-      - develop
-      - main
-
-  push:
-    branches:
-      - develop
-      - main
-
   workflow_dispatch:
-
-  schedule:
-    - cron: "0 2 * * *"
 
 permissions:
   contents: read
