@@ -1,13 +1,13 @@
 name: Flyway Database Migration
 
 on:
-  pull_request:
+
     paths:
       - "services/**/db/migration/*.sql"
       - ".github/workflows/flyway-migration.yml"
       
- workflow_dispatch:     
-  
+workflow_dispatch:
+
     branches:
       - develop
       - main

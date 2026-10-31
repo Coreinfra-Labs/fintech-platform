@@ -9,12 +9,16 @@ on:
         type: choice
         options:
           - api-gateway
+          - dlq-processor
+          - mock-service
+          - ledger-service
           - user-service
           - payment-service
           - wallet-service
           - transaction-service
           - notification-service
           - fraud-service
+          - web
 
       version:
         description: Release Version (Example: v1.3.5)
@@ -304,7 +308,6 @@ jobs:
           echo "Docker image build completed."
 
       # ============================================================
-<<<<<<< HEAD
       # 14. TRIVY IMAGE SCAN
       # ============================================================
 
@@ -605,9 +608,6 @@ jobs:
 
       # ============================================================
       # 18. DOCKER IMAGE PUSH
-=======
-      # 14. DOCKER IMAGE PUSH
->>>>>>> main
       # ============================================================
 
       - name: Push Docker Image
@@ -624,12 +624,8 @@ jobs:
 
           echo "Docker image pushed successfully."
 
-      # ============================================================
-<<<<<<< HEAD
-      # 19. CAPTURE IMMUTABLE IMAGE DIGEST
-=======
+      # ===========================================================
       # 15. CAPTURE IMMUTABLE IMAGE DIGEST
->>>>>>> main
       # ============================================================
 
       - name: Capture ECR Image Digest

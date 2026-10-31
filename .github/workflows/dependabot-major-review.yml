@@ -1,12 +1,7 @@
 # ================================================================
 # Dependabot Major Version Review
 # File: .github/workflows/dependabot-major-review.yml
-<<<<<<< HEAD
-#It does not create PRs.
 
-#It simply checks once per month and reports major versions that are available.
-=======
->>>>>>> main
 # ================================================================
 
 name: Dependabot Major Version Review

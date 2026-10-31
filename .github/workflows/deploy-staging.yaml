@@ -78,8 +78,7 @@ jobs:
       - name: Download Release Metadata
         uses: actions/download-artifact@v4
         with:
-          pattern: release-*
-          merge-multiple: true
+          name: release-metadata
           path: release
           github-token: ${{ steps.github-app.outputs.token }}
           repository: ${{ env.SOURCE_REPOSITORY }}
