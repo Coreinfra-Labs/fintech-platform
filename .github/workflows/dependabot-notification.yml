@@ -1,11 +1,7 @@
 # ================================================================
 # Dependabot PR Notification
-# File: .github/workflows/dependabot-notification.yml
-<<<<<<< HEAD
-#It listens for a Dependabot PR being opened and sends a Slack notification.
-=======
+# File: .github/workflows/dependabot-notification.
 #It listens for a Dependabot PR being opened and sends a Slack notification
->>>>>>> main
 # ================================================================
 
 name: Dependabot Notification

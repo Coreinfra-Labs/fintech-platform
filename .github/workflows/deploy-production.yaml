@@ -20,12 +20,16 @@ on:
         type: choice
         options:
           - api-gateway
+          - dlq-processor
+          - ledger-service
+          - mock-service
           - user-service
           - payment-service
           - wallet-service
           - transaction-service
           - notification-service
           - fraud-service
+          - web
 
       version:
         description: Approved Release Version

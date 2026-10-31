@@ -29,8 +29,8 @@ jobs:
       - name: Download Trivy Report
         uses: dawidd6/action-download-artifact@v3
         with:
-          workflow: security-scheduled.yml
-          workflow_conclusion: failure
+          workflow: security-scheduled.yaml
+          run_id: ${{ github.event.workflow_run.id }}
           name: trivy-results
           path: reports
 
