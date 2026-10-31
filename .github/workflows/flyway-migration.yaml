@@ -1,7 +1,7 @@
 name: Flyway Database Migration
 
 on:
-  push:
+
     branches:
       - develop
       - main
@@ -9,7 +9,7 @@ on:
       - "services/**/db/migration/*.sql"
       - ".github/workflows/flyway-migration.yaml"
 
-  workflow_dispatch:
+workflow_dispatch:
 
 jobs:
   flyway-migrate:
