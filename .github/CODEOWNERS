@@ -1,22 +1,11 @@
 # ==========================================================
 # GLOBAL DEFAULT OWNER
 # ==========================================================
-<<<<<<< HEAD
-
-* @Coreinfra-Labs/platform
-
-
-# ==========================================================
-# BACKEND APPLICATIONS
-# ==========================================================
-
-=======
 * @Coreinfra-Labs/platform
 
 # ==========================================================
 # BACKEND APPLICATIONS
 # ==========================================================
->>>>>>> main
 /services/api-gateway/          @Coreinfra-Labs/backend
 /services/fraud-service/        @Coreinfra-Labs/backend
 /services/mock-services/        @Coreinfra-Labs/backend
@@ -26,23 +15,6 @@
 /services/user-service/         @Coreinfra-Labs/backend
 /services/wallet-service/       @Coreinfra-Labs/backend
 
-<<<<<<< HEAD
-
-# ==========================================================
-# FRONTEND APPLICATION
-# ==========================================================
-
-/services/web/                  @Coreinfra-Labs/frontend
-/services/web-e2e/              @Coreinfra-Labs/frontend
-
-
-# ==========================================================
-# SHARED LIBRARIES
-# ==========================================================
-
-/libs/                           @Coreinfra-Labs/backend
-
-=======
 # ==========================================================
 # FRONTEND APPLICATION
 # ==========================================================
@@ -53,63 +25,34 @@
 # SHARED LIBRARIES
 # ==========================================================
 /libs/                          @Coreinfra-Labs/backend
->>>>>>> main
 
 # ==========================================================
 # CI/CD
 # ==========================================================
-<<<<<<< HEAD
 
-/.github/workflows/              @Coreinfra-Labs/platform
-
-=======
 /.github/workflows/             @Coreinfra-Labs/platform
->>>>>>> main
-
 # ==========================================================
 # SECURITY AUTOMATION
 # ==========================================================
-<<<<<<< HEAD
 
-/.github/workflows/security/     @Coreinfra-Labs/devsecops
-/.github/workflows/security-scheduled.yml @Coreinfra-Labs/devsecops
-/.github/workflows/security-notification.yml @Coreinfra-Labs/devsecops
-
-=======
 /.github/workflows/security/                  @Coreinfra-Labs/devsecops
-/.github/workflows/security-scheduled.yml     @Coreinfra-Labs/devsecops
-/.github/workflows/security-notification.yml  @Coreinfra-Labs/devsecops
->>>>>>> main
+/.github/workflows/security-scheduled.yaml    @Coreinfra-Labs/devsecops
+/.github/workflows/security-notification.yaml @Coreinfra-Labs/devsecops
 
 # ==========================================================
 # DEPENDENCY SECURITY
 # ==========================================================
-<<<<<<< HEAD
 
-/.github/dependabot.yml          @Coreinfra-Labs/security
-
-=======
-/.github/dependabot.yml         @Coreinfra-Labs/security
->>>>>>> main
-
+/.github/dependabot.yaml        @Coreinfra-Labs/security
 # ==========================================================
 # SECURITY ISSUE MANAGEMENT
 # ==========================================================
-<<<<<<< HEAD
 
-/.github/ISSUE_TEMPLATE/         @Coreinfra-Labs/security
 
-=======
 /.github/ISSUE_TEMPLATE/        @Coreinfra-Labs/security
->>>>>>> main
 
 # ==========================================================
 # CODEOWNERS PROTECTION
 # ==========================================================
-<<<<<<< HEAD
 
-/.github/CODEOWNERS              @Coreinfra-Labs/security
-=======
 /.github/CODEOWNERS             @Coreinfra-Labs/security
-``
->>>>>>> main
