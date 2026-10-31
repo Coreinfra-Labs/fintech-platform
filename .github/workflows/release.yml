@@ -113,12 +113,16 @@ jobs:
 
           case "$SERVICE" in
             api-gateway|\
+            dlq-processor|\
+            ledger-service|\
+            mock-service|\
             user-service|\
             payment-service|\
             wallet-service|\
             transaction-service|\
             notification-service|\
-            fraud-service)
+            fraud-service|\
+            web)
               ;;
             *)
               echo "ERROR: Invalid service: $SERVICE"
@@ -127,6 +131,9 @@ jobs:
           esac
 
           DOCKERFILE="services/$SERVICE/Dockerfile"
+          if [[ "$SERVICE" == "mock-service" ]]; then
+            DOCKERFILE="services/mock-services/nibss-mock/Dockerfile"
+          fi
 
           if [[ ! -f "$DOCKERFILE" ]]; then
             echo "ERROR: Dockerfile not found:"
@@ -136,6 +143,7 @@ jobs:
 
           echo "Service validated: $SERVICE"
           echo "Dockerfile: $DOCKERFILE"
+          echo "DOCKERFILE=$DOCKERFILE" >> "$GITHUB_ENV"
 
       # ============================================================
       # 5. RELEASE METADATA
@@ -301,7 +309,7 @@ jobs:
           echo "$IMAGE_URI"
 
           docker build \
-            --file "services/$SERVICE/Dockerfile" \
+            --file "$DOCKERFILE" \
             --tag "$IMAGE_URI" \
             .
 
@@ -664,11 +672,7 @@ jobs:
           echo "=============================================="
 
       # ============================================================
-<<<<<<< HEAD
-      # 20. DIGEST VERIFICATION
-=======
       # 16. DIGEST VERIFICATION
->>>>>>> main
       # ============================================================
 
       - name: Verify ECR Image Digest
@@ -694,11 +698,7 @@ jobs:
           echo "Digest: $DIGEST"
 
       # ============================================================
-<<<<<<< HEAD
-      # 21. RELEASE ARTIFACT GENERATION
-=======
       # 17. RELEASE ARTIFACT GENERATION
->>>>>>> main
       # ============================================================
 
       - name: Generate Release Artifact
@@ -743,11 +743,7 @@ jobs:
           echo "=============================================="
 
       # ============================================================
-<<<<<<< HEAD
-      # 22. RELEASE ARTIFACT UPLOAD
-=======
       # 18. RELEASE ARTIFACT UPLOAD
->>>>>>> main
       # ============================================================
 
       - name: Upload Release Artifact
@@ -758,11 +754,7 @@ jobs:
           retention-days: 90
 
       # ============================================================
-<<<<<<< HEAD
-      # 23. RELEASE SUMMARY
-=======
       # 19. RELEASE SUMMARY
->>>>>>> main
       # ============================================================
 
       - name: Release Summary

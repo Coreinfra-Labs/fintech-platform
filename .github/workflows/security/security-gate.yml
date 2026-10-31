@@ -1,49 +1,80 @@
-jobs:
+name: CI Security Gate
 
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+
+  push:
+    branches:
+      - develop
+      - main
+
+  workflow_dispatch:
+    inputs:
+      full_ci:
+        description: Run CI for all Nx projects
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+  security-events: write
+
+jobs:
   nx-ci:
-    ...
+    name: Nx CI
+    uses: ./.github/workflows/nx-ci.yaml
+    with:
+      full_ci: ${{ inputs.full_ci || false }}
 
   sonar:
-    ...
+    name: SonarQube
+    uses: ./.github/workflows/sonar.yml
+    secrets: inherit
 
   gitleaks:
-    ...
+    name: Gitleaks
+    uses: ./.github/workflows/gitleaks.yaml
+    secrets: inherit
 
   sca-trivy:
-    ...
-
-    ...
+    name: Dependency Security Scan
+    uses: ./.github/workflows/security/sca-trivy.yml
+    secrets: inherit
 
   security-gate:
     name: Security Gate
     needs:
       - nx-ci
-      - Security - SonarQube
-      - Gitleaks
-      - Security - SCA
-
+      - sonar
+      - gitleaks
+      - sca-trivy
     if: always()
-
     runs-on: ubuntu-latest
-
     steps:
-      - name: Evaluate security gate
+      - name: Require all checks to pass
+        env:
+          NX_CI_RESULT: ${{ needs.nx-ci.result }}
+          SONAR_RESULT: ${{ needs.sonar.result }}
+          GITLEAKS_RESULT: ${{ needs.gitleaks.result }}
+          SCA_RESULT: ${{ needs.sca-trivy.result }}
         run: |
-          echo "Nx CI: ${{ needs.nx-ci.result }}"
-          echo "SonarQube: ${{ needs.sonar.result }}"
-          echo "Gitleaks: ${{ needs.gitleaks.result }}"
-          echo "Trivy: ${{ needs.trivy.result }}"
-          echo "IaC Security: ${{ needs.iac-security.result }}"
+          printf 'Nx CI: %s\n' "$NX_CI_RESULT"
+          printf 'SonarQube: %s\n' "$SONAR_RESULT"
+          printf 'Gitleaks: %s\n' "$GITLEAKS_RESULT"
+          printf 'Dependency scan: %s\n' "$SCA_RESULT"
 
-          if [[ \
-            "${{ needs.nx-ci.result }}" != "success" || \
-            "${{ needs.sonar.result }}" != "success" || \
-            "${{ needs.gitleaks.result }}" != "success" || \
-            "${{ needs.trivy.result }}" != "success" || \
-            "${{ needs.iac-security.result }}" != "success" \
-          ]]; then
-            echo "Security Gate FAILED"
+          if [[ "$NX_CI_RESULT" != "success" || \
+                "$SONAR_RESULT" != "success" || \
+                "$GITLEAKS_RESULT" != "success" || \
+                "$SCA_RESULT" != "success" ]]; then
+            echo "CI Security Gate FAILED"
             exit 1
           fi
 
-          echo "Security Gate PASSED"
+          echo "CI Security Gate PASSED"
