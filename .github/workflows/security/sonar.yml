@@ -1,6 +1,14 @@
 name: SAST-SonarQube
 
 on:
+  pull_request:
+    branches:
+      - develop
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
   workflow_dispatch:
 
 permissions:
