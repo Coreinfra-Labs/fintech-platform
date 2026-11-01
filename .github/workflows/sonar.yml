@@ -1,54 +1,68 @@
 name: SAST-SonarQube
 
-on:
-  workflow_call:
+on: 
+   
+   push:
+     types: [opened, synchronize, reopened]
+   pull_request:
+     types: [opened, synchronize, reopened]
 
-  workflow_dispatch:
+    
+   workflow_call:
 
-  schedule:
-    - cron: "0 2 * * *"
+   workflow_dispatch:
+
+   schedule:
+    - cron: "0 2 * * 1" # Every Monday at 2:00 AM UTC
 
 permissions:
+  id-token: write
   contents: read
   pull-requests: read
 
-jobs:
-  sonar:
-    name: SonarQube SAST
-    runs-on: ubuntu-latest
+ 
 
+  jobs:
+  sonar:
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
+      - name: Configure AWS credentials for OIDC
+        uses: aws-actions/configure-aws-credentials@v5
         with:
-          version: 9.8.0
-          run_install: false
+          role-to-assume: arn:aws:iam::<ACCOUNT_ID>:role/github-actions-sonarqube
+          aws-region: us-east-1
+          audience: sts.amazonaws.com
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
+      - name: Read Sonar credentials from AWS Secrets Manager
+        shell: bash
+        run: |
+          set -euo pipefail
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+          SONAR_TOKEN=$(aws secretsmanager get-secret-value \
+            --secret-id sonar/sonarqube/token \
+            --query SecretString \
+            --output text | jq -r '.token')
+
+          SONAR_HOST_URL=$(aws secretsmanager get-secret-value \
+            --secret-id sonar/sonarqube/url \
+            --query SecretString \
+            --output text | jq -r '.url')
+
+          echo "SONAR_TOKEN=$SONAR_TOKEN" >> "$GITHUB_ENV"
+          echo "SONAR_HOST_URL=$SONAR_HOST_URL" >> "$GITHUB_ENV"
 
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v6
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ env.SONAR_HOST_URL }}
 
       - name: SonarQube Quality Gate
         uses: SonarSource/sonarqube-quality-gate-action@v1
-        timeout-minutes: 10
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ env.SONAR_HOST_URL }}
 
