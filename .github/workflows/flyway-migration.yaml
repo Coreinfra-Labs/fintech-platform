@@ -13,6 +13,7 @@ workflow_dispatch:
 
 jobs:
   flyway-migrate:
+    name: Flyway Migration
     runs-on: ubuntu-latest
 
     services:

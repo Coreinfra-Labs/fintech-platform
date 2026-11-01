@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  id-token: write
   contents: read
   pull-requests: read
 
@@ -33,17 +34,40 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Configure AWS credentials for OIDC
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: arn:aws:iam::858404480358:role/GitHubAction-AssumeRoleWithAction
+          aws-region: eu-north-1
+          audience: sts.amazonaws.com
+
+      - name: Read Sonar credentials from AWS Secrets Manager
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SONAR_TOKEN=$(aws secretsmanager get-secret-value \
+            --secret-id sonar/sonarqube/token \
+            --query SecretString \
+            --output text | jq -r '.token')
+
+          SONAR_HOST_URL=$(aws secretsmanager get-secret-value \
+            --secret-id sonar/sonarqube/url \
+            --query SecretString \
+            --output text | jq -r '.url')
+
+          echo "SONAR_TOKEN=$SONAR_TOKEN" >> "$GITHUB_ENV"
+          echo "SONAR_HOST_URL=$SONAR_HOST_URL" >> "$GITHUB_ENV"
+
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v6
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ env.SONAR_HOST_URL }}
 
       - name: SonarQube Quality Gate
         uses: SonarSource/sonarqube-quality-gate-action@v1
-        timeout-minutes: 10
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ env.SONAR_HOST_URL }}
 
