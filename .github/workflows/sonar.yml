@@ -32,9 +32,8 @@ permissions:
       - name: Configure AWS credentials for OIDC
         uses: aws-actions/configure-aws-credentials@v5
         with:
-          role-to-assume: arn:aws:iam::858404480358:role/github-actions-sonarqube
+          role-to-assume: arn:aws:iam::858404480358:role/GitHubAction-AssumeRoleWithAction
           aws-region: us-east-1
-          audience: sts.amazonaws.com
 
       - name: Read Sonar credentials from AWS Secrets Manager
         shell: bash
