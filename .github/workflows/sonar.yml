@@ -1,18 +1,26 @@
+
 name: SAST-SonarQube
 
-on: 
-   
-   push:
-     types: [opened, synchronize, reopened]
-   pull_request:
-     types: [opened, synchronize, reopened]
+on:
+  push:
+    branches:
+      - develop
+      - main
 
-    
-   workflow_call:
+  pull_request:
+    branches:
+      - develop
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
 
-   workflow_dispatch:
+  workflow_call:
 
-   schedule:
+  workflow_dispatch:
+
+  schedule:
     - cron: "0 2 * * 1" # Every Monday at 2:00 AM UTC
 
 permissions:
@@ -20,20 +28,23 @@ permissions:
   contents: read
   pull-requests: read
 
- 
-
-  jobs:
+jobs:
   sonar:
+    name: SonarQube SAST Scan
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Configure AWS credentials for OIDC
         uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: arn:aws:iam::858404480358:role/GitHubAction-AssumeRoleWithAction
-           aws-region: eu-north-1
+          aws-region: eu-north-1
 
       - name: Read Sonar credentials from AWS Secrets Manager
         shell: bash
@@ -50,6 +61,8 @@ permissions:
             --query SecretString \
             --output text | jq -r '.url')
 
+          echo "::add-mask::$SONAR_TOKEN"
+
           echo "SONAR_TOKEN=$SONAR_TOKEN" >> "$GITHUB_ENV"
           echo "SONAR_HOST_URL=$SONAR_HOST_URL" >> "$GITHUB_ENV"
 
@@ -64,4 +77,3 @@ permissions:
         env:
           SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ env.SONAR_HOST_URL }}
-
