@@ -4,24 +4,15 @@ name: SAST-SonarQube
 on:
   push:
     branches:
-      - develop
       - main
-
-  pull_request:
-    branches:
       - develop
-      - main
-    types:
-      - opened
-      - synchronize
-      - reopened
-
-  workflow_call:
 
   workflow_dispatch:
 
+  workflow_call:
+
   schedule:
-    - cron: "0 2 * * 1" # Every Monday at 2:00 AM UTC
+    - cron: "0 2 * * 1"
 
 permissions:
   id-token: write
@@ -30,50 +21,121 @@ permissions:
 
 jobs:
   sonar:
-    name: SonarQube SAST Scan
+    name: SonarQube SAST Analysis
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+
+    environment: dev
+
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: read
 
     steps:
+      # 1. Checkout repository
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Configure AWS credentials for OIDC
+      # 2. Authenticate with AWS using GitHub OIDC
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v5
         with:
-          role-to-assume: arn:aws:iam::858404480358:role/GitHubAction-AssumeRoleWithAction
-          aws-region: eu-north-1
+          role-to-assume: arn:aws:iam::517714604478:role/GitHubAction-AssumeRoleWithAction
+          aws-region: us-east-1
+          role-session-name: GitHubActions-SonarQube
+          allowed-account-ids: "517714604478"
 
-      - name: Read Sonar credentials from AWS Secrets Manager
+      # 3. Verify AWS identity
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
+      # 4. Retrieve SonarQube credentials from AWS Secrets Manager
+      - name: Retrieve SonarQube credentials
         shell: bash
         run: |
           set -euo pipefail
 
-          SONAR_TOKEN=$(aws secretsmanager get-secret-value \
+          echo "Retrieving SonarQube credentials..."
+
+          # Retrieve token JSON and extract token
+          TOKEN_SECRET=$(aws secretsmanager get-secret-value \
             --secret-id sonar/sonarqube/token \
             --query SecretString \
-            --output text | jq -r '.token')
+            --output text \
+            --region us-east-1)
 
-          SONAR_HOST_URL=$(aws secretsmanager get-secret-value \
+          SONAR_TOKEN=$(echo "$TOKEN_SECRET" | jq -er \
+            '."sonar/sonarqube/token"')
+
+          # Retrieve URL JSON and extract URL
+          URL_SECRET=$(aws secretsmanager get-secret-value \
             --secret-id sonar/sonarqube/url \
             --query SecretString \
-            --output text | jq -r '.url')
+            --output text \
+            --region us-east-1)
 
+          SONAR_HOST_URL=$(echo "$URL_SECRET" | jq -er \
+            '."sonar/sonarqube/url"')
+
+          # Validate token
+          if [[ -z "$SONAR_TOKEN" || "$SONAR_TOKEN" == "null" ]]; then
+            echo "ERROR: SonarQube token is missing."
+            exit 1
+          fi
+
+          # Validate URL
+          if [[ ! "$SONAR_HOST_URL" =~ ^https?:// ]]; then
+            echo "ERROR: Invalid SonarQube URL."
+            exit 1
+          fi
+
+          # Mask sensitive credentials
           echo "::add-mask::$SONAR_TOKEN"
 
-          echo "SONAR_TOKEN=$SONAR_TOKEN" >> "$GITHUB_ENV"
-          echo "SONAR_HOST_URL=$SONAR_HOST_URL" >> "$GITHUB_ENV"
+          # Export credentials
+          {
+            echo "SONAR_TOKEN=$SONAR_TOKEN"
+            echo "SONAR_HOST_URL=$SONAR_HOST_URL"
+          } >> "$GITHUB_ENV"
 
+          echo "SonarQube credentials retrieved successfully."
+
+      # 5. Verify SonarQube connectivity
+      - name: Verify SonarQube connectivity
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Checking SonarQube server..."
+
+          HTTP_STATUS=$(curl -sS -o /dev/null \
+            -w "%{http_code}" \
+            --connect-timeout 10 \
+            --max-time 30 \
+            "${SONAR_HOST_URL%/}/api/system/status")
+
+          echo "SonarQube HTTP status: $HTTP_STATUS"
+
+          if [[ "$HTTP_STATUS" != "200" ]]; then
+            echo "ERROR: SonarQube server is not reachable or returned an unexpected status."
+            exit 1
+          fi
+
+          echo "SonarQube server is reachable."
+
+      # 6. Run SonarQube SAST analysis
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ env.SONAR_HOST_URL }}
 
+      # 7. Evaluate SonarQube Quality Gate
       - name: SonarQube Quality Gate
         uses: SonarSource/sonarqube-quality-gate-action@v1
+        timeout-minutes: 5
         env:
           SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ env.SONAR_HOST_URL }}
