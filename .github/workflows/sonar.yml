@@ -57,38 +57,44 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "Retrieving SonarQube credentials from AWS Secrets Manager..."
+          echo "Retrieving SonarQube credentials..."
 
-          # Retrieve SonarQube token
-          SONAR_TOKEN=$(aws secretsmanager get-secret-value \
+          # Retrieve token JSON and extract token
+          TOKEN_SECRET=$(aws secretsmanager get-secret-value \
             --secret-id sonar/sonarqube/token \
             --query SecretString \
             --output text \
             --region us-east-1)
 
-          # Retrieve SonarQube URL (stored as plain text)
-          SONAR_HOST_URL=$(aws secretsmanager get-secret-value \
+          SONAR_TOKEN=$(echo "$TOKEN_SECRET" | jq -er \
+            '."sonar/sonarqube/token"')
+
+          # Retrieve URL JSON and extract URL
+          URL_SECRET=$(aws secretsmanager get-secret-value \
             --secret-id sonar/sonarqube/url \
             --query SecretString \
             --output text \
             --region us-east-1)
 
+          SONAR_HOST_URL=$(echo "$URL_SECRET" | jq -er \
+            '."sonar/sonarqube/url"')
+
           # Validate token
-          if [[ -z "$SONAR_TOKEN" || "$SONAR_TOKEN" == "None" ]]; then
+          if [[ -z "$SONAR_TOKEN" || "$SONAR_TOKEN" == "null" ]]; then
             echo "ERROR: SonarQube token is missing."
             exit 1
           fi
 
           # Validate URL
           if [[ ! "$SONAR_HOST_URL" =~ ^https?:// ]]; then
-            echo "ERROR: Invalid SonarQube URL. Expected http:// or https://"
+            echo "ERROR: Invalid SonarQube URL."
             exit 1
           fi
 
-          # Mask sensitive token
+          # Mask sensitive credentials
           echo "::add-mask::$SONAR_TOKEN"
 
-          # Export credentials for subsequent steps
+          # Export credentials
           {
             echo "SONAR_TOKEN=$SONAR_TOKEN"
             echo "SONAR_HOST_URL=$SONAR_HOST_URL"
@@ -96,13 +102,13 @@ jobs:
 
           echo "SonarQube credentials retrieved successfully."
 
-      # 5. Verify SonarQube server connectivity
+      # 5. Verify SonarQube connectivity
       - name: Verify SonarQube connectivity
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "Checking SonarQube server connectivity..."
+          echo "Checking SonarQube server..."
 
           HTTP_STATUS=$(curl -sS -o /dev/null \
             -w "%{http_code}" \
@@ -113,7 +119,7 @@ jobs:
           echo "SonarQube HTTP status: $HTTP_STATUS"
 
           if [[ "$HTTP_STATUS" != "200" ]]; then
-            echo "ERROR: SonarQube server is not responding successfully."
+            echo "ERROR: SonarQube server is not reachable or returned an unexpected status."
             exit 1
           fi
 
