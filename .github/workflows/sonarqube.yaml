@@ -25,7 +25,6 @@ jobs:
 
     name: SonarQube SAST Analysis
     runs-on: ubuntu-latest
-
     timeout-minutes: 30
 
     steps:
@@ -90,6 +89,9 @@ jobs:
 
           print("=========================================\n")
 
+          # Validate essential OIDC claims.
+          # These are diagnostic checks, not JWT signature verification.
+
           assert claims.get("iss") == \
               "https://token.actions.githubusercontent.com", \
               "Unexpected OIDC issuer"
@@ -108,7 +110,7 @@ jobs:
           print("OIDC claim validation successful.")
           PY
 
-          unset TOKEN
+          unset TOKEN RESPONSE
 
       # --------------------------------------------------
       # STEP 3: AUTHENTICATE TO AWS USING OIDC
@@ -144,7 +146,7 @@ jobs:
           fi
 
           echo "AWS OIDC authentication successful."
-          echo "AWS account validation successful."
+          echo "AWS account verification successful."
 
       # --------------------------------------------------
       # STEP 5: RETRIEVE SONARQUBE CREDENTIALS
@@ -158,6 +160,7 @@ jobs:
 
           echo "Retrieving SonarQube credentials..."
 
+          # Retrieve SonarQube token.
           TOKEN_SECRET=$(aws secretsmanager get-secret-value \
             --secret-id sonar/sonarqube/token \
             --region us-east-1 \
@@ -167,6 +170,7 @@ jobs:
           SONAR_TOKEN=$(echo "$TOKEN_SECRET" | jq -er \
             '."sonar/sonarqube/token"')
 
+          # Retrieve SonarQube URL.
           URL_SECRET=$(aws secretsmanager get-secret-value \
             --secret-id sonar/sonarqube/url \
             --region us-east-1 \
@@ -176,9 +180,11 @@ jobs:
           SONAR_HOST_URL=$(echo "$URL_SECRET" | jq -er \
             '."sonar/sonarqube/url"')
 
+          # Validate extracted credentials.
           test -n "$SONAR_TOKEN"
           test -n "$SONAR_HOST_URL"
 
+          # Enforce HTTPS.
           case "$SONAR_HOST_URL" in
             https://*) ;;
             *)
@@ -187,8 +193,10 @@ jobs:
               ;;
           esac
 
+          # Mask sensitive token.
           echo "::add-mask::$SONAR_TOKEN"
 
+          # Export credentials as step outputs.
           {
             echo "sonar_token=$SONAR_TOKEN"
             echo "sonar_url=$SONAR_HOST_URL"
