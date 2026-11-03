@@ -8,23 +8,41 @@ on:
 
   workflow_dispatch:
 
+# --------------------------------------------------
+# WORKFLOW PERMISSIONS
+# --------------------------------------------------
+
 permissions:
   id-token: write
   contents: read
 
+# --------------------------------------------------
+# JOBS
+# --------------------------------------------------
+
 jobs:
-  sonar:
-    name: Trusted SonarQube Security Scan
+  sonarqube-sast:
+
+    name: SonarQube SAST Analysis
     runs-on: ubuntu-latest
 
+    timeout-minutes: 30
+
     steps:
+
+      # --------------------------------------------------
       # STEP 1: CHECKOUT REPOSITORY
+      # --------------------------------------------------
+
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # STEP 2: DEBUG GITHUB OIDC CLAIMS
+      # --------------------------------------------------
+      # STEP 2: DEBUG GITHUB OIDC SUBJECT
+      # --------------------------------------------------
+
       - name: Debug GitHub OIDC Subject
         shell: bash
         run: |
@@ -34,9 +52,12 @@ jobs:
 
           RESPONSE=$(curl -sS \
             -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com")
+            --get \
+            --data-urlencode "audience=sts.amazonaws.com" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL")
 
           TOKEN=$(echo "$RESPONSE" | jq -er '.value')
+
           export TOKEN
 
           python3 - <<'PY'
@@ -45,6 +66,7 @@ jobs:
           import base64
 
           token = os.environ["TOKEN"]
+
           payload = token.split(".")[1]
           payload += "=" * (-len(payload) % 4)
 
@@ -67,11 +89,31 @@ jobs:
               print(f"{key}: {claims.get(key)}")
 
           print("=========================================\n")
+
+          assert claims.get("iss") == \
+              "https://token.actions.githubusercontent.com", \
+              "Unexpected OIDC issuer"
+
+          assert claims.get("aud") == "sts.amazonaws.com", \
+              "Unexpected OIDC audience"
+
+          assert claims.get("repository") == \
+              "Coreinfra-Labs/fintech-platform", \
+              "Unexpected GitHub repository"
+
+          assert claims.get("ref") == \
+              "refs/heads/develop", \
+              "Unexpected Git branch"
+
+          print("OIDC claim validation successful.")
           PY
 
           unset TOKEN
 
-      # STEP 3: CONFIGURE AWS CREDENTIALS USING OIDC
+      # --------------------------------------------------
+      # STEP 3: AUTHENTICATE TO AWS USING OIDC
+      # --------------------------------------------------
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v5
         with:
@@ -79,7 +121,10 @@ jobs:
           aws-region: us-east-1
           role-session-name: GitHubActions-SonarQube
 
+      # --------------------------------------------------
       # STEP 4: VERIFY AWS IDENTITY
+      # --------------------------------------------------
+
       - name: Verify AWS Identity
         shell: bash
         run: |
@@ -87,10 +132,26 @@ jobs:
 
           echo "Verifying AWS identity..."
 
+          ACCOUNT_ID=$(aws sts get-caller-identity \
+            --query Account \
+            --output text)
+
           aws sts get-caller-identity
 
-      # STEP 5: RETRIEVE SONARQUBE SECRETS
+          if [ "$ACCOUNT_ID" != "517714604478" ]; then
+            echo "Unexpected AWS account."
+            exit 1
+          fi
+
+          echo "AWS OIDC authentication successful."
+          echo "AWS account validation successful."
+
+      # --------------------------------------------------
+      # STEP 5: RETRIEVE SONARQUBE CREDENTIALS
+      # --------------------------------------------------
+
       - name: Retrieve SonarQube Credentials
+        id: sonar_secrets
         shell: bash
         run: |
           set -euo pipefail
@@ -118,60 +179,106 @@ jobs:
           test -n "$SONAR_TOKEN"
           test -n "$SONAR_HOST_URL"
 
+          case "$SONAR_HOST_URL" in
+            https://*) ;;
+            *)
+              echo "SonarQube URL must use HTTPS."
+              exit 1
+              ;;
+          esac
+
           echo "::add-mask::$SONAR_TOKEN"
 
           {
-            echo "SONAR_TOKEN=$SONAR_TOKEN"
-            echo "SONAR_HOST_URL=$SONAR_HOST_URL"
-          } >> "$GITHUB_ENV"
+            echo "sonar_token=$SONAR_TOKEN"
+            echo "sonar_url=$SONAR_HOST_URL"
+          } >> "$GITHUB_OUTPUT"
 
-          unset TOKEN_SECRET SONAR_TOKEN URL_SECRET SONAR_HOST_URL
+          unset TOKEN_SECRET SONAR_TOKEN
+          unset URL_SECRET SONAR_HOST_URL
 
           echo "SonarQube credentials retrieved successfully."
 
+      # --------------------------------------------------
       # STEP 6: VERIFY SONARQUBE CONNECTIVITY
+      # --------------------------------------------------
+
       - name: Verify SonarQube Connectivity
         shell: bash
+        env:
+          SONAR_HOST_URL: ${{ steps.sonar_secrets.outputs.sonar_url }}
         run: |
           set -euo pipefail
 
           echo "Checking SonarQube connectivity..."
 
-          curl --fail \
+          RESPONSE=$(curl --fail \
             --silent \
             --show-error \
             --max-time 30 \
-            "$SONAR_HOST_URL/api/system/status"
+            "$SONAR_HOST_URL/api/system/status")
 
-          echo ""
-          echo "SonarQube connectivity check completed."
+          echo "SonarQube server responded successfully."
 
+          echo "$RESPONSE" | jq '{status: .status}'
+
+          STATUS=$(echo "$RESPONSE" | jq -er '.status')
+
+          if [ "$STATUS" != "UP" ]; then
+            echo "SonarQube server is not UP."
+            exit 1
+          fi
+
+          echo "SonarQube connectivity successful."
+
+      # --------------------------------------------------
       # STEP 7: RUN SONARQUBE SAST SCAN
+      # --------------------------------------------------
+
       - name: Run SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v6
         env:
-          SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ env.SONAR_HOST_URL }}
+          SONAR_TOKEN: ${{ steps.sonar_secrets.outputs.sonar_token }}
+          SONAR_HOST_URL: ${{ steps.sonar_secrets.outputs.sonar_url }}
         with:
           args: >
+            -Dsonar.projectKey=fintech-platform
             -Dsonar.qualitygate.wait=true
             -Dsonar.qualitygate.timeout=300
 
-      # STEP 8: REPORT FINAL RESULT
-      - name: SonarQube Scan Result
+      # --------------------------------------------------
+      # STEP 8: REPORT SUCCESS
+      # --------------------------------------------------
+
+      - name: SonarQube Scan Successful
         if: success()
         shell: bash
         run: |
           echo "========================================="
-          echo " SonarQube SAST completed successfully"
-          echo " Quality Gate passed"
+          echo " SONARQUBE PIPELINE COMPLETED"
+          echo "========================================="
+          echo "Repository Checkout: SUCCESS"
+          echo "GitHub OIDC Validation: SUCCESS"
+          echo "AWS OIDC Authentication: SUCCESS"
+          echo "AWS Account Verification: SUCCESS"
+          echo "Secrets Manager: SUCCESS"
+          echo "SonarQube Connectivity: SUCCESS"
+          echo "SonarQube Analysis: SUCCESS"
+          echo "Quality Gate: PASSED"
           echo "========================================="
 
-      - name: Report Pipeline Failure
+      # --------------------------------------------------
+      # STEP 9: REPORT FAILURE
+      # --------------------------------------------------
+
+      - name: SonarQube Pipeline Failed
         if: failure()
         shell: bash
         run: |
           echo "========================================="
-          echo " SonarQube pipeline failed"
-          echo " Check the failed step and workflow logs"
+          echo " SONARQUBE PIPELINE FAILED"
+          echo "========================================="
+          echo "One or more pipeline steps failed."
+          echo "Check the failed workflow step."
+          echo "Review the GitHub Actions logs."
           echo "========================================="
