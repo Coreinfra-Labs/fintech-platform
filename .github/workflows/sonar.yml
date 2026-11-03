@@ -32,12 +32,48 @@ jobs:
       pull-requests: read
 
     steps:
+      # Step 1: Checkout repository
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # Authenticate GitHub Actions with AWS
+      # Step 2: Debug GitHub OIDC claims
+      - name: Debug GitHub OIDC claims
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RESPONSE=$(curl -sS \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com")
+
+          OIDC_TOKEN=$(echo "$RESPONSE" | jq -er '.value')
+
+          export OIDC_TOKEN
+
+          python3 - <<'PY'
+          import os
+          import json
+          import base64
+
+          token = os.environ["OIDC_TOKEN"]
+          payload = token.split(".")[1]
+          payload += "=" * (-len(payload) % 4)
+
+          claims = json.loads(
+              base64.urlsafe_b64decode(payload)
+          )
+
+          for key in ["iss", "aud", "sub", "repository",
+                      "repository_id", "ref", "environment"]:
+              if key in claims:
+                  print(f"{key}: {claims[key]}")
+          PY
+
+          unset OIDC_TOKEN
+
+      # Step 3: Authenticate GitHub Actions with AWS
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v5
         with:
@@ -46,11 +82,11 @@ jobs:
           role-session-name: GitHubActions-SonarQube
           allowed-account-ids: "517714604478"
 
-      # Verify AWS authentication
+      # Step 4: Verify AWS authentication
       - name: Verify AWS identity
         run: aws sts get-caller-identity
 
-      # Retrieve SonarQube credentials from AWS Secrets Manager
+      # Step 5: Retrieve SonarQube credentials from AWS Secrets Manager
       - name: Retrieve SonarQube credentials
         shell: bash
         run: |
@@ -85,14 +121,14 @@ jobs:
             echo "SONAR_HOST_URL=$SONAR_HOST_URL"
           } >> "$GITHUB_ENV"
 
-      # Run SonarQube analysis
+      # Step 6: Run SonarQube analysis
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ env.SONAR_HOST_URL }}
 
-      # Evaluate Quality Gate
+      # Step 7: Evaluate Quality Gate
       - name: SonarQube Quality Gate
         uses: SonarSource/sonarqube-quality-gate-action@v1
         timeout-minutes: 5
