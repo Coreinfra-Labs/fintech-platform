@@ -5,117 +5,26 @@ on:
   push:
     branches:
       - develop
-
   workflow_dispatch:
-
-# --------------------------------------------------
-# WORKFLOW PERMISSIONS
-# --------------------------------------------------
 
 permissions:
   id-token: write
   contents: read
 
-# --------------------------------------------------
-# JOBS
-# --------------------------------------------------
-
 jobs:
-  sonarqube-sast:
-
+  sonarqube:
     name: SonarQube SAST Analysis
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
 
     steps:
-
-      # --------------------------------------------------
-      # STEP 1: CHECKOUT REPOSITORY
-      # --------------------------------------------------
-
+      # 1. Checkout source code
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # --------------------------------------------------
-      # STEP 2: DEBUG GITHUB OIDC SUBJECT
-      # --------------------------------------------------
-
-      - name: Debug GitHub OIDC Subject
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "Requesting GitHub OIDC token..."
-
-          RESPONSE=$(curl -sS \
-            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            --get \
-            --data-urlencode "audience=sts.amazonaws.com" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL")
-
-          TOKEN=$(echo "$RESPONSE" | jq -er '.value')
-
-          export TOKEN
-
-          python3 - <<'PY'
-          import os
-          import json
-          import base64
-
-          token = os.environ["TOKEN"]
-
-          payload = token.split(".")[1]
-          payload += "=" * (-len(payload) % 4)
-
-          claims = json.loads(
-              base64.urlsafe_b64decode(payload)
-          )
-
-          print("\n========== GITHUB OIDC CLAIMS ==========")
-
-          for key in [
-              "iss",
-              "aud",
-              "sub",
-              "repository",
-              "repository_id",
-              "repository_owner_id",
-              "ref",
-              "environment"
-          ]:
-              print(f"{key}: {claims.get(key)}")
-
-          print("=========================================\n")
-
-          # Validate essential OIDC claims.
-          # These are diagnostic checks, not JWT signature verification.
-
-          assert claims.get("iss") == \
-              "https://token.actions.githubusercontent.com", \
-              "Unexpected OIDC issuer"
-
-          assert claims.get("aud") == "sts.amazonaws.com", \
-              "Unexpected OIDC audience"
-
-          assert claims.get("repository") == \
-              "Coreinfra-Labs/fintech-platform", \
-              "Unexpected GitHub repository"
-
-          assert claims.get("ref") == \
-              "refs/heads/develop", \
-              "Unexpected Git branch"
-
-          print("OIDC claim validation successful.")
-          PY
-
-          unset TOKEN RESPONSE
-
-      # --------------------------------------------------
-      # STEP 3: AUTHENTICATE TO AWS USING OIDC
-      # --------------------------------------------------
-
+      # 2. Authenticate to AWS using GitHub OIDC
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v5
         with:
@@ -123,170 +32,130 @@ jobs:
           aws-region: us-east-1
           role-session-name: GitHubActions-SonarQube
 
-      # --------------------------------------------------
-      # STEP 4: VERIFY AWS IDENTITY
-      # --------------------------------------------------
-
+      # 3. Verify AWS identity
       - name: Verify AWS Identity
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "Verifying AWS identity..."
-
-          ACCOUNT_ID=$(aws sts get-caller-identity \
-            --query Account \
-            --output text)
-
           aws sts get-caller-identity
 
-          if [ "$ACCOUNT_ID" != "517714604478" ]; then
-            echo "Unexpected AWS account."
+          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+
+          if [[ "$ACCOUNT" != "517714604478" ]]; then
+            echo "ERROR: Unexpected AWS account."
             exit 1
           fi
 
-          echo "AWS OIDC authentication successful."
-          echo "AWS account verification successful."
+          echo "AWS authentication successful."
 
-      # --------------------------------------------------
-      # STEP 5: RETRIEVE SONARQUBE CREDENTIALS
-      # --------------------------------------------------
-
+      # 4. Retrieve SonarQube credentials
       - name: Retrieve SonarQube Credentials
-        id: sonar_secrets
+        id: sonar-secrets
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "Retrieving SonarQube credentials..."
+          REGION="us-east-1"
 
-          # Retrieve SonarQube token.
           TOKEN_SECRET=$(aws secretsmanager get-secret-value \
             --secret-id sonar/sonarqube/token \
-            --region us-east-1 \
+            --region "$REGION" \
             --query SecretString \
             --output text)
 
           SONAR_TOKEN=$(echo "$TOKEN_SECRET" | jq -er \
             '."sonar/sonarqube/token"')
 
-          # Retrieve SonarQube URL.
           URL_SECRET=$(aws secretsmanager get-secret-value \
             --secret-id sonar/sonarqube/url \
-            --region us-east-1 \
+            --region "$REGION" \
             --query SecretString \
             --output text)
 
           SONAR_HOST_URL=$(echo "$URL_SECRET" | jq -er \
             '."sonar/sonarqube/url"')
 
-          # Validate extracted credentials.
-          test -n "$SONAR_TOKEN"
-          test -n "$SONAR_HOST_URL"
+          if [[ -z "$SONAR_TOKEN" ]]; then
+            echo "ERROR: SonarQube token is empty."
+            exit 1
+          fi
 
-          # Enforce HTTPS.
-          case "$SONAR_HOST_URL" in
-            https://*) ;;
-            *)
-              echo "SonarQube URL must use HTTPS."
-              exit 1
-              ;;
-          esac
+          # Accept HTTP for current testing and HTTPS for production.
+          python3 - "$SONAR_HOST_URL" <<'PY'
+          import sys
+          from urllib.parse import urlparse
 
-          # Mask sensitive token.
+          url = urlparse(sys.argv[1])
+
+          if url.scheme not in ("http", "https") or not url.hostname:
+              raise SystemExit("ERROR: Invalid SonarQube URL")
+
+          print("SonarQube URL validation successful.")
+          PY
+
           echo "::add-mask::$SONAR_TOKEN"
 
-          # Export credentials as step outputs.
           {
             echo "sonar_token=$SONAR_TOKEN"
             echo "sonar_url=$SONAR_HOST_URL"
           } >> "$GITHUB_OUTPUT"
 
-          unset TOKEN_SECRET SONAR_TOKEN
-          unset URL_SECRET SONAR_HOST_URL
+          unset TOKEN_SECRET SONAR_TOKEN URL_SECRET SONAR_HOST_URL
 
           echo "SonarQube credentials retrieved successfully."
 
-      # --------------------------------------------------
-      # STEP 6: VERIFY SONARQUBE CONNECTIVITY
-      # --------------------------------------------------
-
+      # 5. Verify SonarQube connectivity
       - name: Verify SonarQube Connectivity
         shell: bash
         env:
-          SONAR_HOST_URL: ${{ steps.sonar_secrets.outputs.sonar_url }}
+          SONAR_HOST_URL: ${{ steps.sonar-secrets.outputs.sonar_url }}
         run: |
           set -euo pipefail
 
-          echo "Checking SonarQube connectivity..."
+          echo "Checking SonarQube server..."
 
           RESPONSE=$(curl --fail \
             --silent \
             --show-error \
+            --connect-timeout 10 \
             --max-time 30 \
             "$SONAR_HOST_URL/api/system/status")
 
-          echo "SonarQube server responded successfully."
-
-          echo "$RESPONSE" | jq '{status: .status}'
-
           STATUS=$(echo "$RESPONSE" | jq -er '.status')
+          VERSION=$(echo "$RESPONSE" | jq -er '.version')
 
-          if [ "$STATUS" != "UP" ]; then
-            echo "SonarQube server is not UP."
+          echo "SonarQube version: $VERSION"
+          echo "SonarQube status: $STATUS"
+
+          if [[ "$STATUS" != "UP" ]]; then
+            echo "ERROR: SonarQube server is not UP."
             exit 1
           fi
 
           echo "SonarQube connectivity successful."
 
-      # --------------------------------------------------
-      # STEP 7: RUN SONARQUBE SAST SCAN
-      # --------------------------------------------------
-
-      - name: Run SonarQube Scan
+      # 6. Run SonarQube SAST analysis and enforce Quality Gate
+      - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v6
         env:
-          SONAR_TOKEN: ${{ steps.sonar_secrets.outputs.sonar_token }}
-          SONAR_HOST_URL: ${{ steps.sonar_secrets.outputs.sonar_url }}
+          SONAR_TOKEN: ${{ steps.sonar-secrets.outputs.sonar_token }}
+          SONAR_HOST_URL: ${{ steps.sonar-secrets.outputs.sonar_url }}
         with:
           args: >
-            -Dsonar.projectKey=fintech-platform
             -Dsonar.qualitygate.wait=true
             -Dsonar.qualitygate.timeout=300
 
-      # --------------------------------------------------
-      # STEP 8: REPORT SUCCESS
-      # --------------------------------------------------
-
-      - name: SonarQube Scan Successful
+      # 7. Report success
+      - name: Report Successful Analysis
         if: success()
-        shell: bash
         run: |
-          echo "========================================="
-          echo " SONARQUBE PIPELINE COMPLETED"
-          echo "========================================="
-          echo "Repository Checkout: SUCCESS"
-          echo "GitHub OIDC Validation: SUCCESS"
-          echo "AWS OIDC Authentication: SUCCESS"
-          echo "AWS Account Verification: SUCCESS"
-          echo "Secrets Manager: SUCCESS"
-          echo "SonarQube Connectivity: SUCCESS"
-          echo "SonarQube Analysis: SUCCESS"
-          echo "Quality Gate: PASSED"
-          echo "========================================="
+          echo "SonarQube analysis completed successfully."
+          echo "Quality Gate passed."
 
-      # --------------------------------------------------
-      # STEP 9: REPORT FAILURE
-      # --------------------------------------------------
-
-      - name: SonarQube Pipeline Failed
+      # 8. Report failure
+      - name: Report Pipeline Failure
         if: failure()
-        shell: bash
         run: |
-          echo "========================================="
-          echo " SONARQUBE PIPELINE FAILED"
-          echo "========================================="
-          echo "One or more pipeline steps failed."
-          echo "Check the failed workflow step."
-          echo "Review the GitHub Actions logs."
-          echo "========================================="
+          echo "SonarQube pipeline failed."
+          echo "Inspect the failed step above."
