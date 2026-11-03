@@ -1,18 +1,16 @@
 name: SAST-SonarQube
 
-on: 
-   
-   push:
-     types: [opened, synchronize, reopened]
-   pull_request:
-     types: [opened, synchronize, reopened]
+on:
+  push:
+    branches:
+      - main
+      - develop
 
-    
-   workflow_call:
+  workflow_call:
 
-   workflow_dispatch:
+  workflow_dispatch:
 
-   schedule:
+  schedule:
     - cron: "0 2 * * 1" # Every Monday at 2:00 AM UTC
 
 permissions:
@@ -20,11 +18,10 @@ permissions:
   contents: read
   pull-requests: read
 
- 
-
-  jobs:
+jobs:
   sonar:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,7 +30,7 @@ permissions:
         uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: arn:aws:iam::858404480358:role/GitHubAction-AssumeRoleWithAction
-           aws-region: eu-north-1
+          aws-region: us-east-1
 
       - name: Read Sonar credentials from AWS Secrets Manager
         shell: bash
@@ -43,15 +40,19 @@ permissions:
           SONAR_TOKEN=$(aws secretsmanager get-secret-value \
             --secret-id sonar/sonarqube/token \
             --query SecretString \
-            --output text | jq -r '.token')
+            --output text | jq -er '.token')
 
           SONAR_HOST_URL=$(aws secretsmanager get-secret-value \
             --secret-id sonar/sonarqube/url \
             --query SecretString \
-            --output text | jq -r '.url')
+            --output text | jq -er '.url')
 
-          echo "SONAR_TOKEN=$SONAR_TOKEN" >> "$GITHUB_ENV"
-          echo "SONAR_HOST_URL=$SONAR_HOST_URL" >> "$GITHUB_ENV"
+          echo "::add-mask::$SONAR_TOKEN"
+
+          {
+            echo "SONAR_TOKEN=$SONAR_TOKEN"
+            echo "SONAR_HOST_URL=$SONAR_HOST_URL"
+          } >> "$GITHUB_ENV"
 
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v6
@@ -64,4 +65,3 @@ permissions:
         env:
           SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ env.SONAR_HOST_URL }}
-
