@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   sonar:
-    name: SonarQube SAST Analysis
+    name: SonarQube OIDC Diagnostic
     runs-on: ubuntu-latest
 
     environment: dev
@@ -44,12 +44,23 @@ jobs:
         run: |
           set -euo pipefail
 
-          RESPONSE=$(curl -sS \
+          echo "Checking GitHub OIDC environment variables..."
+
+          if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
+            echo "OIDC request token is missing"
+            exit 1
+          fi
+
+          if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]]; then
+            echo "OIDC request URL is missing"
+            exit 1
+          fi
+
+          RESPONSE=$(curl -fsS \
             -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com")
 
           OIDC_TOKEN=$(echo "$RESPONSE" | jq -er '.value')
-
           export OIDC_TOKEN
 
           python3 - <<'PY'
@@ -65,73 +76,26 @@ jobs:
               base64.urlsafe_b64decode(payload)
           )
 
-          for key in ["iss", "aud", "sub", "repository",
-                      "repository_id", "ref", "environment"]:
+          for key in [
+              "iss",
+              "aud",
+              "sub",
+              "repository",
+              "repository_id",
+              "repository_owner_id",
+              "ref",
+              "environment"
+          ]:
               if key in claims:
                   print(f"{key}: {claims[key]}")
           PY
 
           unset OIDC_TOKEN
 
-      # Step 3: Authenticate GitHub Actions with AWS
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v5
-        with:
-          role-to-assume: arn:aws:iam::517714604478:role/GitHubAction-AssumeRoleWithAction
-          aws-region: us-east-1
-          role-session-name: GitHubActions-SonarQube
-          allowed-account-ids: "517714604478"
+          echo "OIDC diagnostic completed successfully."
 
-      # Step 4: Verify AWS authentication
-      - name: Verify AWS identity
-        run: aws sts get-caller-identity
+      # AWS authentication temporarily disabled
+      # We will restore this after checking the OIDC subject.
 
-      # Step 5: Retrieve SonarQube credentials from AWS Secrets Manager
-      - name: Retrieve SonarQube credentials
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          SONAR_TOKEN=$(aws secretsmanager get-secret-value \
-            --secret-id sonar/sonarqube/token \
-            --query SecretString \
-            --output text \
-            --region us-east-1)
-
-          SONAR_HOST_URL=$(aws secretsmanager get-secret-value \
-            --secret-id sonar/sonarqube/url \
-            --query SecretString \
-            --output text \
-            --region us-east-1)
-
-          if [[ -z "$SONAR_TOKEN" || "$SONAR_TOKEN" == "None" ]]; then
-            echo "SonarQube token is missing"
-            exit 1
-          fi
-
-          if [[ -z "$SONAR_HOST_URL" || "$SONAR_HOST_URL" == "None" ]]; then
-            echo "SonarQube URL is missing"
-            exit 1
-          fi
-
-          echo "::add-mask::$SONAR_TOKEN"
-
-          {
-            echo "SONAR_TOKEN=$SONAR_TOKEN"
-            echo "SONAR_HOST_URL=$SONAR_HOST_URL"
-          } >> "$GITHUB_ENV"
-
-      # Step 6: Run SonarQube analysis
-      - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v6
-        env:
-          SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ env.SONAR_HOST_URL }}
-
-      # Step 7: Evaluate Quality Gate
-      - name: SonarQube Quality Gate
-        uses: SonarSource/sonarqube-quality-gate-action@v1
-        timeout-minutes: 5
-        env:
-          SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ env.SONAR_HOST_URL }}
+      # SonarQube steps temporarily disabled
+      # They require AWS credentials.
