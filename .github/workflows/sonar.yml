@@ -29,7 +29,7 @@ jobs:
       - name: Configure AWS credentials for OIDC
         uses: aws-actions/configure-aws-credentials@v5
         with:
-          role-to-assume: arn:aws:iam::858404480358:role/GitHubAction-AssumeRoleWithAction
+          role-to-assume: arn:aws:iam::517714604478:role/GitHubAction-AssumeRoleWithAction
           aws-region: us-east-1
 
       - name: Read Sonar credentials from AWS Secrets Manager
