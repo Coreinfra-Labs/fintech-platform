@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
   schedule:
-    - cron: "0 2 * * 1" # Every Monday at 2:00 AM UTC
+    - cron: "0 2 * * 1"
 
 permissions:
   id-token: write
@@ -32,6 +32,9 @@ jobs:
           role-to-assume: arn:aws:iam::517714604478:role/GitHubAction-AssumeRoleWithAction
           aws-region: us-east-1
 
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
       - name: Read Sonar credentials from AWS Secrets Manager
         shell: bash
         run: |
@@ -40,12 +43,14 @@ jobs:
           SONAR_TOKEN=$(aws secretsmanager get-secret-value \
             --secret-id sonar/sonarqube/token \
             --query SecretString \
-            --output text | jq -er '.token')
+            --output text \
+            --region us-east-1 | jq -er '.token')
 
           SONAR_HOST_URL=$(aws secretsmanager get-secret-value \
             --secret-id sonar/sonarqube/url \
             --query SecretString \
-            --output text | jq -er '.url')
+            --output text \
+            --region us-east-1 | jq -er '.url')
 
           echo "::add-mask::$SONAR_TOKEN"
 
