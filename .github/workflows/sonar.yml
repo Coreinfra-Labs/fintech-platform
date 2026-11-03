@@ -1,3 +1,4 @@
+
 name: SAST-SonarQube
 
 on:
@@ -20,22 +21,32 @@ permissions:
 
 jobs:
   sonar:
+    name: SonarQube SAST Analysis
     runs-on: ubuntu-latest
 
+    environment: sonarqube
+
     steps:
+      # Step 1: Checkout repository
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
+      # Step 2: Configure AWS credentials using OIDC
       - name: Configure AWS credentials for OIDC
         uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: arn:aws:iam::517714604478:role/GitHubAction-AssumeRoleWithAction
           aws-region: us-east-1
+          role-session-name: GitHubActions-SonarQube
 
+      # Step 3: Verify AWS identity
       - name: Verify AWS identity
         run: aws sts get-caller-identity
 
-      - name: Read Sonar credentials from AWS Secrets Manager
+      # Step 4: Retrieve SonarQube credentials
+      - name: Read SonarQube credentials from AWS Secrets Manager
         shell: bash
         run: |
           set -euo pipefail
@@ -44,13 +55,13 @@ jobs:
             --secret-id sonar/sonarqube/token \
             --query SecretString \
             --output text \
-            --region us-east-1 | jq -er '.token')
+            --region us-east-1)
 
           SONAR_HOST_URL=$(aws secretsmanager get-secret-value \
             --secret-id sonar/sonarqube/url \
             --query SecretString \
             --output text \
-            --region us-east-1 | jq -er '.url')
+            --region us-east-1)
 
           echo "::add-mask::$SONAR_TOKEN"
 
@@ -59,14 +70,17 @@ jobs:
             echo "SONAR_HOST_URL=$SONAR_HOST_URL"
           } >> "$GITHUB_ENV"
 
+      # Step 5: Run SonarQube scan
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ env.SONAR_HOST_URL }}
 
+      # Step 6: Check SonarQube Quality Gate
       - name: SonarQube Quality Gate
         uses: SonarSource/sonarqube-quality-gate-action@v1
+        timeout-minutes: 5
         env:
           SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ env.SONAR_HOST_URL }}
