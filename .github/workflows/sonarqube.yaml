@@ -11,10 +11,6 @@ permissions:
   id-token: write
   contents: read
 
-concurrency:
-  group: sonarqube-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   sonarqube:
     name: SonarQube SAST Analysis
@@ -22,19 +18,13 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      # ======================================================
-      # 1. CHECKOUT REPOSITORY
-      # ======================================================
-
+      # 1. Checkout repository
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # ======================================================
-      # 2. AUTHENTICATE TO AWS USING OIDC
-      # ======================================================
-
+      # 2. Authenticate to AWS using OIDC
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v5
         with:
@@ -42,25 +32,15 @@ jobs:
           aws-region: us-east-1
           role-session-name: GitHubActions-SonarQube
 
-      # ======================================================
-      # 3. VERIFY AWS AUTHENTICATION
-      # ======================================================
-
+      # 3. Verify AWS identity
       - name: Verify AWS Identity
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "Verifying AWS identity..."
+          aws sts get-caller-identity
 
-          IDENTITY=$(aws sts get-caller-identity)
-
-          echo "$IDENTITY" | jq '{
-            Account: .Account,
-            Arn: .Arn
-          }'
-
-          ACCOUNT=$(echo "$IDENTITY" | jq -r '.Account')
+          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 
           if [[ "$ACCOUNT" != "517714604478" ]]; then
             echo "::error::Unexpected AWS account."
@@ -69,10 +49,7 @@ jobs:
 
           echo "AWS authentication successful."
 
-      # ======================================================
-      # 4. RETRIEVE SONARQUBE CREDENTIALS
-      # ======================================================
-
+      # 4. Retrieve SonarQube credentials
       - name: Retrieve SonarQube Credentials
         id: sonar-secrets
         shell: bash
@@ -80,8 +57,6 @@ jobs:
           set -euo pipefail
 
           REGION="us-east-1"
-
-          echo "Retrieving SonarQube credentials..."
 
           TOKEN_SECRET=$(aws secretsmanager get-secret-value \
             --secret-id sonar/sonarqube/token \
@@ -103,40 +78,30 @@ jobs:
             '."sonar/sonarqube/url" | select(type == "string" and length > 0)' \
             <<< "$URL_SECRET")
 
-          # Validate SonarQube URL
           python3 - "$SONAR_HOST_URL" <<'PY'
           import sys
           from urllib.parse import urlparse
 
           parsed = urlparse(sys.argv[1])
 
-          if parsed.scheme not in ("http", "https"):
-              raise SystemExit("Invalid SonarQube URL scheme.")
+          if parsed.scheme not in ("http", "https") or not parsed.hostname:
+              raise SystemExit("Invalid SonarQube URL.")
 
-          if not parsed.hostname:
-              raise SystemExit("SonarQube hostname is missing.")
-
-          print("SonarQube URL validation successful.")
+          print("SonarQube URL validated.")
           PY
 
-          # Mask credentials in GitHub Actions logs
           echo "::add-mask::$SONAR_TOKEN"
 
-          # Export credentials to subsequent steps
           {
             echo "sonar_token=$SONAR_TOKEN"
             echo "sonar_url=$SONAR_HOST_URL"
           } >> "$GITHUB_OUTPUT"
 
           unset TOKEN_SECRET URL_SECRET SONAR_TOKEN SONAR_HOST_URL
-          unset TOKEN_SECRET URL_SECRET
 
           echo "SonarQube credentials retrieved successfully."
 
-      # ======================================================
-      # 5. VERIFY SONARQUBE SERVER CONNECTIVITY
-      # ======================================================
-
+      # 5. Verify SonarQube API
       - name: Verify SonarQube Connectivity
         shell: bash
         env:
@@ -144,24 +109,29 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "Checking SonarQube server..."
+          echo "Checking SonarQube API..."
 
           RESPONSE=$(mktemp)
-          trap 'rm -f "$RESPONSE"' EXIT
+          HEADERS=$(mktemp)
+          trap 'rm -f "$RESPONSE" "$HEADERS"' EXIT
 
           HTTP_STATUS=$(curl \
             --silent \
             --show-error \
             --connect-timeout 10 \
             --max-time 30 \
+            --max-redirs 0 \
+            --dump-header "$HEADERS" \
             --output "$RESPONSE" \
             --write-out "%{http_code}" \
+            --header "Accept: application/json" \
             "$SONAR_HOST_URL/api/system/status")
 
           echo "HTTP Status: $HTTP_STATUS"
 
           if [[ "$HTTP_STATUS" != "200" ]]; then
-            echo "::error::SonarQube returned HTTP $HTTP_STATUS"
+            echo "::error::Unexpected HTTP status: $HTTP_STATUS"
+            cat "$HEADERS"
             head -c 500 "$RESPONSE"
             exit 1
           fi
@@ -170,7 +140,10 @@ jobs:
             (.status | type == "string") and
             (.version | type == "string")
           ' "$RESPONSE" >/dev/null 2>&1; then
-            echo "::error::Invalid SonarQube JSON response."
+            echo "::error::Expected SonarQube JSON but received another response."
+            echo "Response headers:"
+            cat "$HEADERS"
+            echo "Response preview:"
             head -c 500 "$RESPONSE"
             exit 1
           fi
@@ -182,16 +155,13 @@ jobs:
           echo "SonarQube Status: $STATUS"
 
           if [[ "$STATUS" != "UP" ]]; then
-            echo "::error::SonarQube server is not UP."
+            echo "::error::SonarQube is not operational."
             exit 1
           fi
 
-          echo "SonarQube connectivity successful."
+          echo "SonarQube API connectivity successful."
 
-      # ======================================================
-      # 6. RUN SONARQUBE SAST ANALYSIS
-      # ======================================================
-
+      # 6. Run SonarQube SAST scan and enforce Quality Gate
       - name: SonarQube SAST Scan
         uses: SonarSource/sonarqube-scan-action@v6
         env:
@@ -203,34 +173,16 @@ jobs:
             -Dsonar.qualitygate.wait=true
             -Dsonar.qualitygate.timeout=300
 
-      # ======================================================
-      # 7. REPORT SUCCESS
-      # ======================================================
-
+      # 7. Report success
       - name: Report Successful Analysis
         if: success()
-        shell: bash
         run: |
-          echo "============================================"
-          echo " SONARQUBE PIPELINE COMPLETED SUCCESSFULLY"
-          echo "============================================"
-          echo "AWS OIDC              : SUCCESS"
-          echo "AWS Secrets Manager   : SUCCESS"
-          echo "SonarQube Connectivity: SUCCESS"
-          echo "SAST Analysis         : SUCCESS"
-          echo "Quality Gate          : PASSED"
-          echo "============================================"
+          echo "SonarQube SAST analysis completed."
+          echo "Quality Gate passed."
 
-      # ======================================================
-      # 8. REPORT FAILURE
-      # ======================================================
-
+      # 8. Report failure
       - name: Report Pipeline Failure
         if: failure()
-        shell: bash
         run: |
-          echo "============================================"
-          echo " SONARQUBE PIPELINE FAILED"
-          echo "============================================"
-          echo "Review the failed workflow step."
-          echo "============================================"
+          echo "::error::SonarQube pipeline failed."
+          echo "Inspect the failed step above."
