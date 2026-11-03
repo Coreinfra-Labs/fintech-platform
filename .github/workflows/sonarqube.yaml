@@ -63,69 +63,53 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           echo "Retrieving SonarQube credentials..."
-
           TOKEN_SECRET=$(aws secretsmanager get-secret-value \
             --secret-id sonar/sonarqube/token \
             --query SecretString \
             --output text \
             --region us-east-1)
-
           SONAR_TOKEN=$(jq -er \
             '."sonar/sonarqube/token" | select(type == "string" and length > 0)' \
             <<< "$TOKEN_SECRET")
-
           URL_SECRET=$(aws secretsmanager get-secret-value \
             --secret-id sonar/sonarqube/url \
             --query SecretString \
             --output text \
             --region us-east-1)
-
           SONAR_HOST_URL=$(jq -er \
             '."sonar/sonarqube/url" | select(type == "string" and length > 0)' \
             <<< "$URL_SECRET")
-
           # Validate SonarQube URL
           if [[ ! "$SONAR_HOST_URL" =~ ^https?://[^/[:space:]]+(/.*)?$ ]]; then
             echo "ERROR: Invalid SonarQube URL."
             exit 1
           fi
-
           # Mask sensitive token
           echo "::add-mask::$SONAR_TOKEN"
-
           # Export credentials for subsequent steps
           {
             echo "SONAR_TOKEN=$SONAR_TOKEN"
             echo "SONAR_HOST_URL=$SONAR_HOST_URL"
           } >> "$GITHUB_ENV"
-
           echo "SonarQube credentials retrieved successfully."
-
       # 5. Verify SonarQube connectivity
       - name: Verify SonarQube connectivity
         shell: bash
         run: |
           set -euo pipefail
-
           echo "Checking SonarQube server..."
-
           HTTP_STATUS=$(curl -sS -o /dev/null \
             -w "%{http_code}" \
             --connect-timeout 10 \
             --max-time 30 \
             "${SONAR_HOST_URL%/}/api/system/status")
-
           echo "SonarQube HTTP status: $HTTP_STATUS"
-
           if [[ "$HTTP_STATUS" != "200" ]]; then
             echo "ERROR: SonarQube server is not reachable."
             exit 1
           fi
-
           echo "SonarQube server is reachable."
-
       # 6. Run SonarQube SAST analysis
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v6
