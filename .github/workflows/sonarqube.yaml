@@ -1,4 +1,3 @@
-
 name: SAST-SonarQube
 
 on:
@@ -8,8 +7,12 @@ on:
       - develop
 
   workflow_dispatch:
-
-  workflow_call:
+    inputs:
+      branch:
+        description: "Branch to scan"
+        required: true
+        default: "develop"
+        type: string
 
   schedule:
     - cron: "0 2 * * 1"
@@ -19,12 +22,16 @@ permissions:
   contents: read
   pull-requests: read
 
+concurrency:
+  group: sonarqube-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   sonar:
     name: SonarQube SAST Analysis
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
-    environment: dev
 
     permissions:
       id-token: write
@@ -51,7 +58,7 @@ jobs:
       - name: Verify AWS identity
         run: aws sts get-caller-identity
 
-      # 4. Retrieve SonarQube credentials from AWS Secrets Manager
+      # 4. Retrieve SonarQube credentials
       - name: Retrieve SonarQube credentials
         shell: bash
         run: |
@@ -59,42 +66,36 @@ jobs:
 
           echo "Retrieving SonarQube credentials..."
 
-          # Retrieve token JSON and extract token
           TOKEN_SECRET=$(aws secretsmanager get-secret-value \
             --secret-id sonar/sonarqube/token \
             --query SecretString \
             --output text \
             --region us-east-1)
 
-          SONAR_TOKEN=$(echo "$TOKEN_SECRET" | jq -er \
-            '."sonar/sonarqube/token"')
+          SONAR_TOKEN=$(jq -er \
+            '."sonar/sonarqube/token" | select(type == "string" and length > 0)' \
+            <<< "$TOKEN_SECRET")
 
-          # Retrieve URL JSON and extract URL
           URL_SECRET=$(aws secretsmanager get-secret-value \
             --secret-id sonar/sonarqube/url \
             --query SecretString \
             --output text \
             --region us-east-1)
 
-          SONAR_HOST_URL=$(echo "$URL_SECRET" | jq -er \
-            '."sonar/sonarqube/url"')
+          SONAR_HOST_URL=$(jq -er \
+            '."sonar/sonarqube/url" | select(type == "string" and length > 0)' \
+            <<< "$URL_SECRET")
 
-          # Validate token
-          if [[ -z "$SONAR_TOKEN" || "$SONAR_TOKEN" == "null" ]]; then
-            echo "ERROR: SonarQube token is missing."
-            exit 1
-          fi
-
-          # Validate URL
-          if [[ ! "$SONAR_HOST_URL" =~ ^https?:// ]]; then
+          # Validate SonarQube URL
+          if [[ ! "$SONAR_HOST_URL" =~ ^https?://[^/[:space:]]+(/.*)?$ ]]; then
             echo "ERROR: Invalid SonarQube URL."
             exit 1
           fi
 
-          # Mask sensitive credentials
+          # Mask sensitive token
           echo "::add-mask::$SONAR_TOKEN"
 
-          # Export credentials
+          # Export credentials for subsequent steps
           {
             echo "SONAR_TOKEN=$SONAR_TOKEN"
             echo "SONAR_HOST_URL=$SONAR_HOST_URL"
@@ -119,7 +120,7 @@ jobs:
           echo "SonarQube HTTP status: $HTTP_STATUS"
 
           if [[ "$HTTP_STATUS" != "200" ]]; then
-            echo "ERROR: SonarQube server is not reachable or returned an unexpected status."
+            echo "ERROR: SonarQube server is not reachable."
             exit 1
           fi
 
@@ -139,3 +140,5 @@ jobs:
         env:
           SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ env.SONAR_HOST_URL }}
+        with:
+          pollingTimeoutSec: 300
