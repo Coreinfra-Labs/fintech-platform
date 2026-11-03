@@ -24,7 +24,6 @@ jobs:
     name: SonarQube SAST Analysis
     runs-on: ubuntu-latest
 
-    environment: dev
 
     permissions:
       id-token: write
