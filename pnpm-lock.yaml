@@ -223,8 +223,8 @@ importers:
         specifier: ^7.35.0
         version: 7.37.5(eslint@9.39.5(jiti@2.4.2))
       eslint-plugin-react-hooks:
-        specifier: 5.0.0
-        version: 5.0.0(eslint@9.39.5(jiti@2.4.2))
+        specifier: 5.2.0
+        version: 5.2.0(eslint@9.39.5(jiti@2.4.2))
       jest:
         specifier: 30.5.2
         version: 30.5.2(@types/node@26.6.5)(babel-plugin-macros@3.1.0)
@@ -5038,8 +5038,8 @@ packages:
     peerDependencies:
       eslint: 9.39.5
 
-  eslint-plugin-react-hooks@5.0.0:
-    resolution: {integrity: sha512-hIOwI+5hYGpJEc4uPRmz2ulCjAGD/N13Lukkh8cLV0i2IRk/bdZDYjgLVHj+U9Z704kLIdIO6iueGvxNur0sgw==}
+  eslint-plugin-react-hooks@5.2.0:
+    resolution: {integrity: sha512-+f15FfK64YQwZdJNELETdn5ibXEUQmW1DZL6KXhNnc2heoy/sg9VJJeT7n8TlMWouzWqSWavFkIhHyIbIAEapg==}
     engines: {node: '>=10'}
     peerDependencies:
       eslint: 9.39.5
@@ -15662,7 +15662,7 @@ snapshots:
     dependencies:
       eslint: 9.39.5(jiti@2.4.2)
 
-  eslint-plugin-react-hooks@5.0.0(eslint@9.39.5(jiti@2.4.2)):
+  eslint-plugin-react-hooks@5.2.0(eslint@9.39.5(jiti@2.4.2)):
     dependencies:
       eslint: 9.39.5(jiti@2.4.2)
 
