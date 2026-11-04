@@ -1,0 +1,129 @@
+# ================================================================
+# Dependabot Configuration
+# File: .github/dependabot.yml
+# ================================================================
+
+version: 2
+
+updates:
+
+  # ==============================================================
+  # 1. NPM / PNPM DEPENDENCIES
+  # ==============================================================
+
+  - package-ecosystem: "npm"
+    directory: "/"
+
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "02:00"
+      timezone: "Africa/Lagos"
+
+    open-pull-requests-limit: 5
+
+    labels:
+      - "security:automated"
+      - "scanner:sca"
+      - "type:dependency"
+
+    commit-message:
+      prefix: "deps"
+
+    reviewers:
+      - "Coreinfra-Labs/security"
+
+    # ------------------------------------------------------------
+    # BLOCK MAJOR VERSION UPDATES
+    # ------------------------------------------------------------
+
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+
+    # ------------------------------------------------------------
+    # GROUP RELATED PACKAGES
+    # ------------------------------------------------------------
+
+    groups:
+
+      nx:
+        patterns:
+          - "@nx/*"
+          - "nx"
+
+      angular:
+        patterns:
+          - "@angular/*"
+
+      react:
+        patterns:
+          - "react"
+          - "react-*"
+          - "@types/react*"
+
+      typescript:
+        patterns:
+          - "typescript"
+          - "@types/node"
+
+      testing:
+        patterns:
+          - "jest"
+          - "@jest/*"
+          - "vitest"
+          - "@playwright/*"
+          - "playwright"
+
+      eslint:
+        patterns:
+          - "eslint"
+          - "@eslint/*"
+          - "typescript-eslint"
+          - "@typescript-eslint/*"
+
+  # ==============================================================
+  # 2. GITHUB ACTIONS
+  # ==============================================================
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "02:30"
+      timezone: "Africa/Lagos"
+
+    open-pull-requests-limit: 5
+
+    labels:
+      - "security:automated"
+      - "scanner:sca"
+      - "type:dependency"
+
+    commit-message:
+      prefix: "ci"
+
+    reviewers:
+      - "Coreinfra-Labs/devsecops"
+
+    # ------------------------------------------------------------
+    # BLOCK MAJOR ACTION CHANGES
+    # ------------------------------------------------------------
+
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+
+    # ------------------------------------------------------------
+    # GROUP GITHUB ACTION UPDATES
+    # ------------------------------------------------------------
+
+    groups:
+
+      github-actions:
+        patterns:
+          - "*"
