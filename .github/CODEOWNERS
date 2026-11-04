@@ -24,35 +24,40 @@
 # ==========================================================
 # SHARED LIBRARIES
 # ==========================================================
-/libs/                          @Coreinfra-Labs/backend
+/libs/                          @Coreinfra-Labs/backend @Coreinfra-Labs/maintainers
 
 # ==========================================================
-# CI/CD
+# CI/CD AND RELEASE OWNERSHIP
 # ==========================================================
 
 /.github/workflows/             @Coreinfra-Labs/platform
+/.github/workflows/release.yml  @Coreinfra-Labs/platform @Coreinfra-Labs/maintainers
+/.github/workflows/deploy-*.yaml @Coreinfra-Labs/platform @Coreinfra-Labs/maintainers
+/.github/workflows/deploy-*.yml @Coreinfra-Labs/platform @Coreinfra-Labs/maintainers
+/.github/workflows/pr-lifecycle-notification.yaml @Coreinfra-Labs/platform @Coreinfra-Labs/maintainers
+
 # ==========================================================
 # SECURITY AUTOMATION
 # ==========================================================
 
-/.github/workflows/security/                  @Coreinfra-Labs/devsecops
-/.github/workflows/security-scheduled.yaml    @Coreinfra-Labs/devsecops
-/.github/workflows/security-notification.yaml @Coreinfra-Labs/devsecops
+/.github/workflows/security/                  @Coreinfra-Labs/devsecops @Coreinfra-Labs/security
+/.github/workflows/security-scheduled.yaml    @Coreinfra-Labs/devsecops @Coreinfra-Labs/security
+/.github/workflows/security-notification.yaml @Coreinfra-Labs/devsecops @Coreinfra-Labs/security
 
 # ==========================================================
 # DEPENDENCY SECURITY
 # ==========================================================
 
-/.github/dependabot.yaml        @Coreinfra-Labs/security
+/.github/dependabot.yml         @Coreinfra-Labs/security @Coreinfra-Labs/devsecops
+
 # ==========================================================
 # SECURITY ISSUE MANAGEMENT
 # ==========================================================
 
-
 /.github/ISSUE_TEMPLATE/        @Coreinfra-Labs/security
 
 # ==========================================================
-# CODEOWNERS PROTECTION
+# REPOSITORY GOVERNANCE
 # ==========================================================
 
-/.github/CODEOWNERS             @Coreinfra-Labs/security
+/.github/CODEOWNERS             @Coreinfra-Labs/security @Coreinfra-Labs/maintainers

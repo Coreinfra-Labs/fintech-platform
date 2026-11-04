@@ -23,131 +23,159 @@ jobs:
 
     steps:
 
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Download Security Scan Status
+        continue-on-error: true
+        uses: dawidd6/action-download-artifact@09f2f74827fd3a8607589e5ad7f9398816f540fe # v3
+        with:
+          workflow: security-scheduled.yaml
+          run_id: ${{ github.event.workflow_run.id }}
+          name: security-scan-status
+          path: reports/status
 
       - name: Download Trivy Report
-        uses: dawidd6/action-download-artifact@v3
+        continue-on-error: true
+        uses: dawidd6/action-download-artifact@09f2f74827fd3a8607589e5ad7f9398816f540fe # v3
         with:
           workflow: security-scheduled.yaml
           run_id: ${{ github.event.workflow_run.id }}
           name: trivy-results
-          path: reports
+          path: reports/trivy
 
-      - name: Extract Findings
+      - name: Extract Scan Results
         id: findings
         run: |
+          set -euo pipefail
 
-          CRITICAL=$(jq '[.. | .Severity? | select(.=="CRITICAL")] | length' reports/trivy-results.json)
+          TRIVY_STATUS="unavailable"
+          PNPM_CHECK_STATUS="unavailable"
+          CRITICAL="unavailable"
+          HIGH="unavailable"
+          FINDINGS="Trivy report unavailable"
 
-          HIGH=$(jq '[.. | .Severity? | select(.=="HIGH")] | length' reports/trivy-results.json)
+          if [[ -f reports/status/security-scan-status.json ]]; then
+            TRIVY_STATUS=$(jq -er '.trivy | select(length > 0)' reports/status/security-scan-status.json)
+            PNPM_CHECK_STATUS=$(jq -er '.pnpm_check | select(length > 0)' reports/status/security-scan-status.json)
+          else
+            echo "::warning::Security scan status artifact was not available."
+          fi
 
-          PACKAGES=$(jq -r '
-          ..
-          | .PkgName?
-          | select(. != null)
-          ' reports/trivy-results.json | sort -u | head -10)
+          if [[ -f reports/trivy/trivy-results.json ]]; then
+            CRITICAL=$(jq '[.. | objects | select(.VulnerabilityID? != null and .Severity? == "CRITICAL")] | length' reports/trivy/trivy-results.json)
+            HIGH=$(jq '[.. | objects | select(.VulnerabilityID? != null and .Severity? == "HIGH")] | length' reports/trivy/trivy-results.json)
+            FINDINGS=$(jq -r '
+              [
+                .. | objects
+                | select(.VulnerabilityID? != null)
+                | {
+                    severity: (.Severity // "UNKNOWN"),
+                    id: .VulnerabilityID,
+                    package: (.PkgName // "unknown package"),
+                    installed: (.InstalledVersion // "unknown"),
+                    fixed: (if ((.FixedVersion // "") | length) > 0 then .FixedVersion else "no fixed version listed" end),
+                    title: ((.Title // "") | gsub("[\r\n]"; " ") | .[0:120]),
+                    url: (.PrimaryURL // "")
+                  }
+              ]
+              | unique_by([.id, .package, .installed])
+              | sort_by(if .severity == "CRITICAL" then 0 elif .severity == "HIGH" then 1 else 2 end)
+              | .[:5]
+              | if length == 0 then
+                  "No qualifying Trivy vulnerabilities reported."
+                else
+                  map(
+                    "*\(.severity)* | "
+                    + (if .url != "" then "<\(.url)|\(.id)>" else .id end)
+                    + " | `\(.package)` `\(.installed)` → `\(.fixed)`"
+                    + (if .title != "" then "\n  \(.title)" else "" end)
+                  )
+                  | join("\n")
+                end
+            ' reports/trivy/trivy-results.json)
+          else
+            echo "::warning::Trivy report artifact was not available."
+          fi
 
           {
+            echo "trivy_status=${TRIVY_STATUS}"
+            echo "pnpm_check_status=${PNPM_CHECK_STATUS}"
             echo "critical=${CRITICAL}"
             echo "high=${HIGH}"
-
-            echo "packages<<EOF"
-            echo "$PACKAGES"
-            echo "EOF"
-
-          } >> $GITHUB_OUTPUT
+            echo "findings<<__TRIVY_FINDINGS__"
+            echo "$FINDINGS"
+            echo "__TRIVY_FINDINGS__"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Send Slack Alert
-
         env:
-
           WEBHOOK: ${{ secrets.SECURITY_SLACK_WEBHOOK_URL }}
-
+          TRIVY_STATUS: ${{ steps.findings.outputs.trivy_status }}
+          PNPM_CHECK_STATUS: ${{ steps.findings.outputs.pnpm_check_status }}
           CRITICAL_COUNT: ${{ steps.findings.outputs.critical }}
-
           HIGH_COUNT: ${{ steps.findings.outputs.high }}
-
-          PACKAGES: ${{ steps.findings.outputs.packages }}
-
+          FINDINGS: ${{ steps.findings.outputs.findings }}
           REPOSITORY: ${{ github.repository }}
-
           BRANCH: ${{ github.event.workflow_run.head_branch }}
-
           WORKFLOW_URL: ${{ github.event.workflow_run.html_url }}
-
         run: |
+          set -euo pipefail
 
-          curl -X POST \
-          -H "Content-Type: application/json" \
-          --data "{
+          if [[ -z "${WEBHOOK:-}" ]]; then
+            echo "::error::SECURITY_SLACK_WEBHOOK_URL is not configured."
+            exit 1
+          fi
 
-            \"text\":\"Security Findings Detected\",
-
-            \"blocks\": [
-
-              {
-                \"type\":\"header\",
-                \"text\":{
-                  \"type\":\"plain_text\",
-                  \"text\":\"🚨 Security Vulnerabilities Detected\"
-                }
-              },
-
-              {
-                \"type\":\"section\",
-                \"fields\": [
-
-                  {
-                    \"type\":\"mrkdwn\",
-                    \"text\":\"*Repository:*\\n${REPOSITORY}\"
-                  },
-
-                  {
-                    \"type\":\"mrkdwn\",
-                    \"text\":\"*Branch:*\\n${BRANCH}\"
-                  },
-
-                  {
-                    \"type\":\"mrkdwn\",
-                    \"text\":\"*Critical:*\\n${CRITICAL_COUNT}\"
-                  },
-
-                  {
-                    \"type\":\"mrkdwn\",
-                    \"text\":\"*High:*\\n${HIGH_COUNT}\"
+          PAYLOAD=$(jq -n \
+            --arg repository "$REPOSITORY" \
+            --arg branch "$BRANCH" \
+            --arg trivy_status "$TRIVY_STATUS" \
+            --arg pnpm_check_status "$PNPM_CHECK_STATUS" \
+            --arg critical "$CRITICAL_COUNT" \
+            --arg high "$HIGH_COUNT" \
+            --arg findings "$FINDINGS" \
+            --arg workflow_url "$WORKFLOW_URL" \
+            '{
+              text: ("Scheduled security checks failed. Trivy: " + $trivy_status + "; pnpm dependency check: " + $pnpm_check_status + "."),
+              blocks: [
+                {
+                  type: "header",
+                  text: {
+                    type: "plain_text",
+                    text: "Scheduled security checks failed"
                   }
-
-                ]
-              },
-
-              {
-                \"type\":\"section\",
-                \"text\":{
-                  \"type\":\"mrkdwn\",
-                  \"text\":\"*Affected Packages:*\\n${PACKAGES}\"
-                }
-              },
-
-              {
-                \"type\":\"actions\",
-                \"elements\":[
-
-                  {
-                    \"type\":\"button\",
-                    \"text\":{
-                      \"type\":\"plain_text\",
-                      \"text\":\"View Findings\"
-                    },
-                    \"url\":\"${WORKFLOW_URL}\"
+                },
+                {
+                  type: "section",
+                  fields: [
+                    {type: "mrkdwn", text: ("*Repository:*\n" + $repository)},
+                    {type: "mrkdwn", text: ("*Branch:*\n" + $branch)},
+                    {type: "mrkdwn", text: ("*Trivy:*\n" + $trivy_status)},
+                    {type: "mrkdwn", text: ("*pnpm dependency check:*\n" + $pnpm_check_status)},
+                    {type: "mrkdwn", text: ("*Critical findings:*\n" + $critical)},
+                    {type: "mrkdwn", text: ("*High findings:*\n" + $high)}
+                  ]
+                },
+                {
+                  type: "section",
+                  text: {
+                    type: "mrkdwn",
+                    text: ("*Trivy findings (up to 5; package version → fixed version):*\n" + $findings)
                   }
+                },
+                {
+                  type: "actions",
+                  elements: [
+                    {
+                      type: "button",
+                      text: {type: "plain_text", text: "View run and reports"},
+                      url: $workflow_url
+                    }
+                  ]
+                }
+              ]
+            }')
 
-                ]
-              }
-
-            ]
-
-          }" \
-          "$WEBHOOK"
-
-
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Content-Type: application/json" \
+            --data "$PAYLOAD" \
+            "$WEBHOOK"

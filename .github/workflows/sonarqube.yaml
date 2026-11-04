@@ -17,6 +17,8 @@ on:
   schedule:
     - cron: "0 2 * * 1"
 
+  workflow_call:
+
 permissions:
   id-token: write
   contents: read
@@ -41,13 +43,13 @@ jobs:
     steps:
       # 1. Checkout repository
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
       # 2. Authenticate with AWS using GitHub OIDC
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: arn:aws:iam::517714604478:role/GitHubAction-AssumeRoleWithAction
           aws-region: us-east-1
@@ -112,14 +114,14 @@ jobs:
           echo "SonarQube server is reachable."
       # 6. Run SonarQube SAST analysis
       - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v6
+        uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6
         env:
           SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ env.SONAR_HOST_URL }}
 
       # 7. Evaluate SonarQube Quality Gate
       - name: SonarQube Quality Gate
-        uses: SonarSource/sonarqube-quality-gate-action@v1
+        uses: SonarSource/sonarqube-quality-gate-action@7a5fffe8e523c40e0c740b6bc2712ab503e52efa # v1
         timeout-minutes: 5
         env:
           SONAR_TOKEN: ${{ env.SONAR_TOKEN }}

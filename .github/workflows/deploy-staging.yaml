@@ -1,11 +1,12 @@
 name: Deploy Staging
 
 on:
-  workflow_run:
-    workflows:
-      - Deploy Dev
-    types:
-      - completed
+  workflow_dispatch:
+    inputs:
+      release_run_id:
+        description: Successful Release workflow run ID from the develop branch
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -31,16 +32,66 @@ jobs:
 
     name: Promote Release To Staging
 
-    if: >
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'develop'
-
     runs-on: ubuntu-latest
 
     environment:
       name: staging
 
     steps:
+
+      #################################################
+      # 0. Validate Selected Release Run
+      #################################################
+
+      - name: Validate Release Run
+        id: validate-release-run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$RELEASE_RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "::error::Release run ID must contain only digits."
+            exit 1
+          fi
+
+          RELEASE_WORKFLOW_ID=$(gh api \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/release.yml" \
+            --jq '.id')
+
+          RELEASE_RUN=$(gh api \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$RELEASE_RUN_ID")
+
+          if [[ "$(jq -r '.workflow_id' <<< "$RELEASE_RUN")" != "$RELEASE_WORKFLOW_ID" ]]; then
+            echo "::error::Run $RELEASE_RUN_ID is not a run of release.yml."
+            exit 1
+          fi
+
+          if [[ "$(jq -r '.status' <<< "$RELEASE_RUN")" != "completed" ||
+                "$(jq -r '.conclusion' <<< "$RELEASE_RUN")" != "success" ]]; then
+            echo "::error::Release run $RELEASE_RUN_ID has not completed successfully."
+            exit 1
+          fi
+
+          if [[ "$(jq -r '.head_branch' <<< "$RELEASE_RUN")" != "develop" ]]; then
+            echo "::error::Release run $RELEASE_RUN_ID was not created from develop."
+            exit 1
+          fi
+
+          ARTIFACT_COUNT=$(gh api \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$RELEASE_RUN_ID/artifacts?per_page=100" \
+            --jq '[.artifacts[] | select(.expired == false) | select(.name | startswith("release-"))] | length')
+
+          if [[ "$ARTIFACT_COUNT" != "1" ]]; then
+            echo "::error::Expected exactly one available release artifact for run $RELEASE_RUN_ID; found $ARTIFACT_COUNT."
+            exit 1
+          fi
+
+          echo "Validated successful release run $RELEASE_RUN_ID from develop."
+          echo "Release run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$RELEASE_RUN_ID" \
+            >> "$GITHUB_STEP_SUMMARY"
 
       #################################################
       # 1. Create GitHub App Installation Token
@@ -75,14 +126,14 @@ jobs:
       # 3. Download Release Artifact
       #################################################
 
-      - name: Download Release Metadata
+      - name: Download Release Artifact
         uses: actions/download-artifact@v4
         with:
-          name: release-metadata
+          pattern: release-*
+          merge-multiple: true
           path: release
-          github-token: ${{ steps.github-app.outputs.token }}
-          repository: ${{ env.SOURCE_REPOSITORY }}
-          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.release_run_id }}
 
       #################################################
       # 4. Read Release Metadata
@@ -155,11 +206,11 @@ jobs:
 
       - name: Validate Release Identity
         shell: bash
+        env:
+          TRIGGER_RUN_ID: ${{ inputs.release_run_id }}
         run: |
 
           set -euo pipefail
-
-          TRIGGER_RUN_ID="${{ github.event.workflow_run.id }}"
 
           if [[ -n "$RELEASE_RUN_ID" &&
                 "$RELEASE_RUN_ID" != "$TRIGGER_RUN_ID" ]]; then
