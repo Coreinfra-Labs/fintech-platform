@@ -1,0 +1,251 @@
+name: PR Lifecycle Notifications
+
+on:
+  workflow_run:
+    workflows:
+      - CI Security Gate
+    types:
+      - completed
+
+  pull_request_target:
+    branches:
+      - develop
+      - main
+    types:
+      - review_submitted
+      - closed
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+jobs:
+  notify-checks-passed:
+    name: Notify when PR checks pass
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: pr-checks-passed-${{ github.event.workflow_run.head_sha || github.run_id }}
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: read
+    steps:
+      - name: Find associated pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW_RUN: ${{ toJSON(github.event.workflow_run) }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "notify=false" >> "$GITHUB_OUTPUT"
+
+          PR_NUMBER=$(jq -r '.pull_requests[0].number // empty' <<< "$WORKFLOW_RUN")
+          if [[ -z "$PR_NUMBER" ]]; then
+            HEAD_SHA=$(jq -r '.head_sha // empty' <<< "$WORKFLOW_RUN")
+            if [[ -n "$HEAD_SHA" ]]; then
+              PR_NUMBER=$(gh api \
+                "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/pulls" \
+                --jq '[.[] | select(.state == "open") | select(.base.ref == "main" or .base.ref == "develop")][0].number // empty')
+            fi
+          fi
+
+          if [[ -z "$PR_NUMBER" ]]; then
+            echo "No open pull request is associated with this successful gate run; skipping Slack notification."
+            exit 0
+          fi
+
+          PR=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")
+          HEAD_SHA=$(jq -r '.head_sha // empty' <<< "$WORKFLOW_RUN")
+          PR_HEAD_SHA=$(jq -r '.head.sha' <<< "$PR")
+          PR_STATE=$(jq -r '.state' <<< "$PR")
+          PR_DRAFT=$(jq -r '.draft' <<< "$PR")
+          BASE_BRANCH=$(jq -r '.base.ref' <<< "$PR")
+
+          if [[ "$PR_STATE" != "open" || "$PR_DRAFT" != "false" ||
+                "$PR_HEAD_SHA" != "$HEAD_SHA" ||
+                ( "$BASE_BRANCH" != "main" && "$BASE_BRANCH" != "develop" ) ]]; then
+            echo "PR is closed, draft, out of scope, or has newer commits; skipping stale readiness notification."
+            exit 0
+          fi
+
+          MARKER="<!--ci-security-gate-passed:${HEAD_SHA}-->"
+          COMMENTS=$(gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+            --jq '.[].body')
+          if grep -Fq -- "$MARKER" <<< "$COMMENTS"; then
+            echo "A checks-passed notification was already sent for this PR commit; skipping duplicate."
+            exit 0
+          fi
+
+          {
+            echo "notify=true"
+            echo "number=$PR_NUMBER"
+            echo "title=$(jq -r '.title' <<< "$PR" | tr '\n' ' ')"
+            echo "url=$(jq -r '.html_url' <<< "$PR")"
+            echo "author=$(jq -r '.user.login' <<< "$PR")"
+            echo "base=$BASE_BRANCH"
+            echo "head_sha=$HEAD_SHA"
+            echo "marker=$MARKER"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Notify reviewers that checks passed
+        if: steps.pr.outputs.notify == 'true'
+        env:
+          WEBHOOK: ${{ secrets.PR_NOTIFICATION_WEBHOOK_URL }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          PR_TITLE: ${{ steps.pr.outputs.title }}
+          PR_URL: ${{ steps.pr.outputs.url }}
+          PR_AUTHOR: ${{ steps.pr.outputs.author }}
+          BASE_BRANCH: ${{ steps.pr.outputs.base }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          MARKER: ${{ steps.pr.outputs.marker }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${WEBHOOK:-}" ]]; then
+            echo "::error::PR_NOTIFICATION_WEBHOOK_URL is not configured."
+            exit 1
+          fi
+
+          PAYLOAD=$(jq -n \
+            --arg repo "$REPOSITORY" \
+            --arg number "$PR_NUMBER" \
+            --arg title "$PR_TITLE" \
+            --arg url "$PR_URL" \
+            --arg author "$PR_AUTHOR" \
+            --arg base "$BASE_BRANCH" \
+            '{
+              text: ("PR checks passed: " + $repo + " #" + $number + " is ready for review."),
+              blocks: [
+                {
+                  type: "header",
+                  text: {type: "plain_text", text: "✅ Pull request checks passed"}
+                },
+                {
+                  type: "section",
+                  fields: [
+                    {type: "mrkdwn", text: ("*Repository:*\n" + $repo)},
+                    {type: "mrkdwn", text: ("*Target branch:*\n" + $base)},
+                    {type: "mrkdwn", text: ("*PR:*\n#" + $number)},
+                    {type: "mrkdwn", text: ("*Author:*\n" + $author)}
+                  ]
+                },
+                {
+                  type: "section",
+                  text: {type: "mrkdwn", text: ("*Title:*\n" + $title)}
+                },
+                {
+                  type: "actions",
+                  elements: [
+                    {type: "button", text: {type: "plain_text", text: "Review PR"}, url: $url}
+                  ]
+                }
+              ]
+            }')
+
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Content-Type: application/json" \
+            --data "$PAYLOAD" \
+            "$WEBHOOK"
+
+          gh api \
+            --method POST \
+            "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+            --field body="CI Security Gate passed for commit $HEAD_SHA; reviewer notification sent. $MARKER" \
+            > /dev/null
+
+  notify-review-or-merge:
+    name: Notify on PR approval or merge
+    if: >
+      github.event_name == 'pull_request_target' &&
+      (
+        (github.event.action == 'review_submitted' && github.event.review.state == 'approved') ||
+        (github.event.action == 'closed' && github.event.pull_request.merged == true)
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify on approval or merge
+        env:
+          WEBHOOK: ${{ secrets.PR_NOTIFICATION_WEBHOOK_URL }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
+          ACTOR: ${{ github.actor }}
+          EVENT_ACTION: ${{ github.event.action }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${WEBHOOK:-}" ]]; then
+            echo "::error::PR_NOTIFICATION_WEBHOOK_URL is not configured."
+            exit 1
+          fi
+
+          if [[ "$EVENT_ACTION" == "review_submitted" ]]; then
+            HEADER="✅ Pull request received an approval"
+            SUMMARY="Approval recorded. Check the PR for any remaining required CODEOWNER reviews and checks before merging."
+            STATUS="Approved by ${ACTOR}"
+          else
+            HEADER="🎉 Pull request merged"
+            SUMMARY="The pull request has been merged."
+            STATUS="Merged by ${ACTOR}"
+          fi
+
+          PAYLOAD=$(jq -n \
+            --arg repo "$REPOSITORY" \
+            --arg number "$PR_NUMBER" \
+            --arg title "$PR_TITLE" \
+            --arg url "$PR_URL" \
+            --arg author "$PR_AUTHOR" \
+            --arg base "$BASE_BRANCH" \
+            --arg header "$HEADER" \
+            --arg summary "$SUMMARY" \
+            --arg status "$STATUS" \
+            '{
+              text: ($header + ": " + $repo + " #" + $number + " — " + $title),
+              blocks: [
+                {
+                  type: "header",
+                  text: {type: "plain_text", text: $header}
+                },
+                {
+                  type: "section",
+                  fields: [
+                    {type: "mrkdwn", text: ("*Repository:*\n" + $repo)},
+                    {type: "mrkdwn", text: ("*Target branch:*\n" + $base)},
+                    {type: "mrkdwn", text: ("*PR:*\n#" + $number)},
+                    {type: "mrkdwn", text: ("*Author:*\n" + $author)},
+                    {type: "mrkdwn", text: ("*Status:*\n" + $status)}
+                  ]
+                },
+                {
+                  type: "section",
+                  text: {type: "mrkdwn", text: ($summary + "\n*Title:*\n" + $title)}
+                },
+                {
+                  type: "actions",
+                  elements: [
+                    {type: "button", text: {type: "plain_text", text: "View PR"}, url: $url}
+                  ]
+                }
+              ]
+            }')
+
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Content-Type: application/json" \
+            --data "$PAYLOAD" \
+            "$WEBHOOK"
