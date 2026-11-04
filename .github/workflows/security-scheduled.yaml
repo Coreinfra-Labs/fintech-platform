@@ -29,5 +29,19 @@ jobs:
     steps:
 
       - name: Security Scan Completed
+        env:
+          TRIVY_RESULT: ${{ needs.trivy-sca.outputs.trivy_result }}
+          PNPM_CHECK_RESULT: ${{ needs.trivy-sca.outputs.pnpm_check_result }}
         run: |
-          echo "Security workflow completed"
+          jq -n \
+            --arg trivy "$TRIVY_RESULT" \
+            --arg pnpm_check "$PNPM_CHECK_RESULT" \
+            '{trivy: $trivy, pnpm_check: $pnpm_check}' \
+            > security-scan-status.json
+
+      - name: Upload Security Scan Status
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: security-scan-status
+          path: security-scan-status.json

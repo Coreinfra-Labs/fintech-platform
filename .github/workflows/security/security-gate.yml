@@ -34,8 +34,12 @@ jobs:
 
   sonar:
     name: SonarQube
-    uses: ./.github/workflows/sonar.yml
+    uses: ./.github/workflows/sonarqube.yaml
     secrets: inherit
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: read
 
   gitleaks:
     name: Gitleaks

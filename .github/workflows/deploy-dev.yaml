@@ -22,7 +22,7 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
-  EKS_CLUSTER_NAME: YOUR-DEV-EKS-CLUSTER
+  EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
 
 jobs:
 
@@ -385,6 +385,35 @@ jobs:
           echo "Release identity validated."
 
       #################################################
+      # Validate Dev Environment Configuration
+      #################################################
+
+      - name: Validate Dev Environment Configuration
+        shell: bash
+        env:
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${EKS_CLUSTER_NAME:-}" ]]; then
+            echo "::error::Set the EKS_CLUSTER_NAME variable in the dev GitHub Environment."
+            exit 1
+          fi
+
+          if [[ -z "${AWS_ROLE_ARN:-}" ]]; then
+            echo "::error::Set the AWS_ROLE_ARN secret in the dev GitHub Environment."
+            exit 1
+          fi
+
+          if [[ ! "${AWS_ACCOUNT_ID:-}" =~ ^[0-9]{12}$ ]]; then
+            echo "::error::Set AWS_ACCOUNT_ID to the 12-digit ECR account ID in the dev GitHub Environment."
+            exit 1
+          fi
+
+          echo "Dev environment configuration is present."
+
+      #################################################
       # Configure AWS Credentials
       #################################################
 
@@ -393,6 +422,28 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+
+      #################################################
+      # Verify EKS Cluster
+      #################################################
+
+      - name: Verify EKS Cluster
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          CLUSTER_STATUS=$(aws eks describe-cluster \
+            --name "$EKS_CLUSTER_NAME" \
+            --region "$AWS_REGION" \
+            --query 'cluster.status' \
+            --output text)
+
+          if [[ "$CLUSTER_STATUS" != "ACTIVE" ]]; then
+            echo "::error::EKS cluster $EKS_CLUSTER_NAME is not ACTIVE (status: $CLUSTER_STATUS)."
+            exit 1
+          fi
+
+          echo "EKS cluster is active in $AWS_REGION."
 
       #################################################
       # Verify ECR Repository
