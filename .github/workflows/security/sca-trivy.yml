@@ -1,12 +1,12 @@
-name: Security - SCA
+name: SCA - Software Composition Analysis
 
 on:
-  pull_request:
+  push:
     branches:
       - main
       - develop
 
-  push:
+  pull_request:
     branches:
       - main
       - develop
@@ -27,15 +27,11 @@ permissions:
   security-events: write
 
 jobs:
-
   trivy-sca:
-
     name: Trivy Dependency Scan
-
     runs-on: ubuntu-latest
 
     steps:
-
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -65,13 +61,10 @@ jobs:
           path: trivy-results.json
 
   pnpm-audit:
-
     name: pnpm Dependency Audit
-
     runs-on: ubuntu-latest
 
     steps:
-
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
