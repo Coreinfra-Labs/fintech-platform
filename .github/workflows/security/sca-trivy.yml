@@ -1,17 +1,8 @@
 name: Security - SCA
 
-on:
-  pull_request:
-    branches:
-      - main
-      - develop
+  
 
-  push:
-    branches:
-      - main
-      - develop
-
-  workflow_call:
+workflow_call:
     outputs:
       trivy_result:
         description: Result of the Trivy dependency scan
