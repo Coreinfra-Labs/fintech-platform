@@ -1,87 +1,135 @@
-name: Flyway Database Migration
+name: SAST-SonarQube
 
 on:
-
+  push:
     branches:
-      - develop
       - main
-    paths:
-      - "services/**/db/migration/*.sql"
-      - ".github/workflows/flyway-migration.yaml"
+      - develop
 
-workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+      - develop
+
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch to scan"
+        required: true
+        default: "develop"
+        type: string
+
+  schedule:
+    - cron: "0 2 * * 1"
+
+  workflow_call:
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: sonarqube-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  flyway-migrate:
-    name: Flyway Migration
+  sonar:
+    name: SonarQube SAST Analysis
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
-    services:
-      postgres:
-        image: postgres:15-alpine
-        env:
-          POSTGRES_DB: fintech_db
-          POSTGRES_USER: fintech_user
-          POSTGRES_PASSWORD: fintech_secure_password
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U fintech_user -d fintech_db"
-          --health-cmd-interval=10s
-          --health-cmd-timeout=5s
-          --health-cmd-retries=10
+
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: read
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      # 1. Checkout repository
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
 
-      - name: Install PostgreSQL client
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
+      # 2. Authenticate with AWS using GitHub OIDC
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
+        with:
+          role-to-assume: arn:aws:iam::517714604478:role/GitHubAction-AssumeRoleWithAction
+          aws-region: us-east-1
+          role-session-name: GitHubActions-SonarQube
+          allowed-account-ids: "517714604478"
 
-      - name: Create service schemas if missing
-        run: |
-          psql postgresql://fintech_user:fintech_secure_password@localhost:5432/fintech_db \
-            -tc "SELECT 1" >/dev/null
+      # 3. Verify AWS identity
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
 
-          for schema in users wallets transactions fraud ledger payments notifications; do
-            psql postgresql://fintech_user:fintech_secure_password@localhost:5432/fintech_db \
-              -tc "CREATE SCHEMA IF NOT EXISTS ${schema};"
-          done
-
-      - name: Run Flyway migrations per service
+      # 4. Retrieve SonarQube credentials
+      - name: Retrieve SonarQube credentials
         shell: bash
         run: |
           set -euo pipefail
-
-          WORKSPACE_ROOT="$GITHUB_WORKSPACE"
-
-          for dir in \
-            "$WORKSPACE_ROOT/services/user-service/db/migration" \
-            "$WORKSPACE_ROOT/services/wallet-service/db/migration" \
-            "$WORKSPACE_ROOT/services/transaction-service/db/migration" \
-            "$WORKSPACE_ROOT/services/fraud-service/db/migration" \
-            "$WORKSPACE_ROOT/services/ledger-service/db/migration" \
-            "$WORKSPACE_ROOT/services/payment-service/db/migration" \
-            "$WORKSPACE_ROOT/services/notification-service/db/migration"
-          do
-            if [ -d "$dir" ]; then
-              echo "Running Flyway for: $dir"
-              docker run --rm \
-                -v "$WORKSPACE_ROOT:/workspace" \
-                flyway/flyway:10-alpine \
-                -url=jdbc:postgresql://host.docker.internal:5432/fintech_db \
-                -user=fintech_user \
-                -password=fintech_secure_password \
-                -locations="filesystem:/workspace/${dir#$WORKSPACE_ROOT/}" \
-                -baselineOnMigrate=true \
-                -connectRetries=5 \
-                migrate
-            fi
-          done
-
-      - name: Show migration history
+          echo "Retrieving SonarQube credentials..."
+          TOKEN_SECRET=$(aws secretsmanager get-secret-value \
+            --secret-id sonar/sonarqube/token \
+            --query SecretString \
+            --output text \
+            --region us-east-1)
+          SONAR_TOKEN=$(jq -er \
+            '."sonar/sonarqube/token" | select(type == "string" and length > 0)' \
+            <<< "$TOKEN_SECRET")
+          URL_SECRET=$(aws secretsmanager get-secret-value \
+            --secret-id sonar/sonarqube/url \
+            --query SecretString \
+            --output text \
+            --region us-east-1)
+          SONAR_HOST_URL=$(jq -er \
+            '."sonar/sonarqube/url" | select(type == "string" and length > 0)' \
+            <<< "$URL_SECRET")
+          # Validate SonarQube URL
+          if [[ ! "$SONAR_HOST_URL" =~ ^https?://[^/[:space:]]+(/.*)?$ ]]; then
+            echo "ERROR: Invalid SonarQube URL."
+            exit 1
+          fi
+          # Mask sensitive token
+          echo "::add-mask::$SONAR_TOKEN"
+          # Export credentials for subsequent steps
+          {
+            echo "SONAR_TOKEN=$SONAR_TOKEN"
+            echo "SONAR_HOST_URL=$SONAR_HOST_URL"
+          } >> "$GITHUB_ENV"
+          echo "SonarQube credentials retrieved successfully."
+      # 5. Verify SonarQube connectivity
+      - name: Verify SonarQube connectivity
+        shell: bash
         run: |
-          psql postgresql://fintech_user:fintech_secure_password@localhost:5432/fintech_db \
-            -c "SELECT * FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 20;"
+          set -euo pipefail
+          echo "Checking SonarQube server..."
+          HTTP_STATUS=$(curl -sS -o /dev/null \
+            -w "%{http_code}" \
+            --connect-timeout 10 \
+            --max-time 30 \
+            "${SONAR_HOST_URL%/}/api/system/status")
+          echo "SonarQube HTTP status: $HTTP_STATUS"
+          if [[ "$HTTP_STATUS" != "200" ]]; then
+            echo "ERROR: SonarQube server is not reachable."
+            exit 1
+          fi
+          echo "SonarQube server is reachable."
+      # 6. Run SonarQube SAST analysis
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6
+        env:
+          SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ env.SONAR_HOST_URL }}
+
+      # 7. Evaluate SonarQube Quality Gate
+      - name: SonarQube Quality Gate
+        uses: SonarSource/sonarqube-quality-gate-action@7a5fffe8e523c40e0c740b6bc2712ab503e52efa # v1
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ env.SONAR_HOST_URL }}
+        with:
+          pollingTimeoutSec: 300
