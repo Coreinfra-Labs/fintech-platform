@@ -22,8 +22,6 @@ on:
 permissions:
   actions: read
   contents: read
-  pull-requests: write
-  security-events: write
 
 jobs:
   nx-ci:
@@ -32,10 +30,9 @@ jobs:
     with:
       full_ci: ${{ inputs.full_ci || false }}
 
-  # Fork PRs do not receive upstream secrets or OIDC tokens.
-  # Keep these credential-dependent scans out of the untrusted fork workflow context.
   sonar:
     name: SonarQube
+    # GitHub does not provide upstream secrets or OIDC to fork PR workflows.
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
     uses: ./.github/workflows/sonarqube.yaml
     secrets: inherit
@@ -46,14 +43,11 @@ jobs:
 
   gitleaks:
     name: Gitleaks
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
     uses: ./.github/workflows/gitleaks.yaml
-    secrets: inherit
 
   sca-trivy:
     name: Dependency Security Scan
     uses: ./.github/workflows/security/sca-trivy.yml
-    secrets: inherit
 
   security-gate:
     name: Security Gate
@@ -83,23 +77,26 @@ jobs:
           printf 'PR from fork: %s\n' "$PR_IS_FORK"
 
           if [[ "$PR_IS_FORK" == "true" ]]; then
-            if [[ "$NX_CI_RESULT" != "success" || "$SCA_RESULT" != "success" ]]; then
-              echo "Fork PR Security Gate FAILED: Nx CI and dependency scanning must pass."
+            if [[ "$NX_CI_RESULT" != "success" ||
+                  "$GITLEAKS_RESULT" != "success" ||
+                  "$SCA_RESULT" != "success" ]]; then
+              echo "Fork PR Security Gate FAILED: Nx, Gitleaks, and dependency checks must pass."
               exit 1
             fi
 
-            if [[ "$SONAR_RESULT" != "skipped" || "$GITLEAKS_RESULT" != "skipped" ]]; then
-              echo "Fork PR Security Gate FAILED: credential-dependent scans must be skipped for fork PRs."
+            if [[ "$SONAR_RESULT" != "skipped" ]]; then
+              echo "Fork PR Security Gate FAILED: SonarQube must be skipped in the untrusted fork workflow."
               exit 1
             fi
 
-            echo "Fork PR checks passed. NOTICE: SonarQube and licensed Gitleaks were skipped because fork PR workflows cannot access upstream OIDC or secrets. These scans are not covered by this gate for fork PRs."
+            echo "::warning::SonarQube was not run for this fork PR. This gate does not provide a pre-merge SonarQube result."
+            echo "Fork PR Security Gate PASSED for the checks that ran."
             exit 0
           fi
 
-          if [[ "$NX_CI_RESULT" != "success" || \
-                "$SONAR_RESULT" != "success" || \
-                "$GITLEAKS_RESULT" != "success" || \
+          if [[ "$NX_CI_RESULT" != "success" ||
+                "$SONAR_RESULT" != "success" ||
+                "$GITLEAKS_RESULT" != "success" ||
                 "$SCA_RESULT" != "success" ]]; then
             echo "CI Security Gate FAILED"
             exit 1
