@@ -1,16 +1,6 @@
 name: SCA - Software Composition Analysis
 
 on:
-  push:
-    branches:
-      - main
-      - develop
-
-  pull_request:
-    branches:
-      - main
-      - develop
-
   workflow_call:
     outputs:
       trivy_result:
@@ -36,7 +26,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Cache Trivy
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@0057852abf89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cache/trivy
           key: trivy-${{ runner.os }}
