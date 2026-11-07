@@ -1,7 +1,8 @@
 # ==========================================================
 # GLOBAL DEFAULT OWNER
 # ==========================================================
-* @Coreinfra-Labs/platform
+* @Coreinfra-Labs/platform  @Coreinfra-Labs/maintainers
+
 
 # ==========================================================
 # BACKEND APPLICATIONS
@@ -48,7 +49,8 @@
 # DEPENDENCY SECURITY
 # ==========================================================
 
-/.github/dependabot.yml         @Coreinfra-Labs/security @Coreinfra-Labs/devsecops
+/.github/dependabot.yml         @Coreinfra-Labs/security  @Coreinfra-Labs/maintainers
+
 
 # ==========================================================
 # SECURITY ISSUE MANAGEMENT

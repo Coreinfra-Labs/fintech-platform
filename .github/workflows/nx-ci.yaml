@@ -1,17 +1,6 @@
 name: nx-ci
 
-on:
-  pull_request:
-    branches:
-      - develop
-      - main
-    types:
-      - opened
-      - synchronize
-      - reopened
-
-
-  workflow_call:
+workflow_call:
     inputs:
       full_ci:
         description: Run CI for all Nx projects
