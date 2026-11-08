@@ -94,7 +94,8 @@
   "pnpm": {
     "overrides": {
       "eslint": "9.39.5",
-      "nth-check@<2.0.1": ">=2.0.1",
+      "nth-check": "2.0.1",
+      "@opentelemetry/core@<2.8.0": "2.8.0",
       "webpack-dev-server@<=5.2.0": ">=5.2.1",
       "postcss@<8.4.31": ">=8.4.31",
       "nodemailer@<7.0.7": ">=7.0.7",

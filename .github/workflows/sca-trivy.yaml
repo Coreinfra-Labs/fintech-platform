@@ -82,9 +82,7 @@ jobs:
               sys.exit(1)
 
           allowed = {
-              "VulnerabilityID": "GHSA-gcqx-w48m-w2h4",
-              "PkgName": "deepmerge",
-              "Severity": "LOW",
+              ("GHSA-gcqx-w48m-w2h4", "deepmerge", "LOW"),
           }
 
           results = data.get("Results", [])
@@ -96,7 +94,7 @@ jobs:
                   pkg = vuln.get("PkgName")
                   sev = (vuln.get("Severity") or "").upper()
 
-                  if vid == allowed["VulnerabilityID"] and pkg == allowed["PkgName"] and sev == allowed["Severity"]:
+                  if (vid, pkg, sev) in allowed:
                       continue
 
                   unexpected.append({
@@ -112,7 +110,7 @@ jobs:
                   print(f" - {item['target']}: {item['id']} {item['pkg']} {item['severity']}")
               sys.exit(1)
 
-          print("Trivy passed with only the approved deepmerge exception")
+          print("Trivy passed with only the approved security exceptions")
           PY
 
       - name: Upload Trivy Report
