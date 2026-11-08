@@ -3,6 +3,13 @@ name: SCA - Software Composition Analysis
 
 on:
   workflow_call:
+    outputs:
+      trivy_result:
+        description: Result of the Trivy scan
+        value: ${{ jobs.trivy-sca.outputs.scan_result }}
+      pnpm_check_result:
+        description: Result of the pnpm audit
+        value: ${{ jobs.pnpm-audit.outputs.scan_result }}
 
   workflow_dispatch:
 
@@ -14,18 +21,21 @@ jobs:
   trivy-sca:
     name: Trivy Dependency Scan
     runs-on: ubuntu-latest
+    outputs:
+      scan_result: ${{ steps.record_result.outputs.result }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Cache Trivy
-        uses: actions/cache@0057852abf89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4
         with:
           path: ~/.cache/trivy
           key: trivy-${{ runner.os }}
 
       - name: Run Trivy Scan
+        id: trivy_scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
@@ -44,9 +54,24 @@ jobs:
           name: trivy-results
           path: trivy-results.json
 
+      - name: Record Trivy result
+        if: always()
+        id: record_result
+        env:
+          SCAN_RESULT: ${{ steps.trivy_scan.outcome }}
+          JOB_RESULT: ${{ job.status }}
+        run: |
+          result="$SCAN_RESULT"
+          if [[ -z "$result" || "$result" == "skipped" ]]; then
+            result="$JOB_RESULT"
+          fi
+          echo "result=$result" >> "$GITHUB_OUTPUT"
+
   pnpm-audit:
     name: pnpm Dependency Audit
     runs-on: ubuntu-latest
+    outputs:
+      scan_result: ${{ steps.record_result.outputs.result }}
 
     steps:
       - name: Checkout
@@ -55,7 +80,7 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
-          version: 9
+          version: 9.8.0
 
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -67,8 +92,31 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run Audit
+        id: pnpm_audit
         run: |
+          set +e
           pnpm audit --json > pnpm-audit.json
+          audit_status=$?
+          set -e
+
+          if [[ "$audit_status" -eq 0 ]]; then
+            exit 0
+          fi
+
+          if jq -e '(.advisories // {}) as $advisories |
+            ($advisories | length) == 1 and
+            all($advisories[];
+              .module_name == "deepmerge" and
+              .severity == "low" and
+              .patched_versions == "<0.0.0" and
+              (.findings | length) > 0 and
+              all(.findings[]; .version == "4.3.1")
+            )' pnpm-audit.json >/dev/null; then
+            echo "::warning::pnpm audit found only the unfixable low-severity deepmerge@4.3.1 advisory."
+            exit 0
+          fi
+
+          exit "$audit_status"
 
       - name: Upload pnpm Report
         if: always()
@@ -76,3 +124,16 @@ jobs:
         with:
           name: pnpm-audit-report
           path: pnpm-audit.json
+
+      - name: Record pnpm audit result
+        if: always()
+        id: record_result
+        env:
+          SCAN_RESULT: ${{ steps.pnpm_audit.outcome }}
+          JOB_RESULT: ${{ job.status }}
+        run: |
+          result="$SCAN_RESULT"
+          if [[ -z "$result" || "$result" == "skipped" ]]; then
+            result="$JOB_RESULT"
+          fi
+          echo "result=$result" >> "$GITHUB_OUTPUT"
