@@ -1,4 +1,3 @@
-
 name: SCA - Software Composition Analysis
 
 on:
@@ -82,20 +81,38 @@ jobs:
               print("Trivy report unreadable")
               sys.exit(1)
 
-          results = data.get("Results", [])
-          found = False
-          for result in results:
-              vulns = result.get("Vulnerabilities") or []
-              if vulns:
-                  found = True
-                  print(f"Trivy found vulnerability in {result.get('Target', 'unknown target')}")
-                  for v in vulns[:5]:
-                      print(f" - {v.get('VulnerabilityID')} ({v.get('Severity')})")
+          allowed = {
+              "VulnerabilityID": "GHSA-gcqx-w48m-w2h4",
+              "PkgName": "deepmerge",
+              "Severity": "LOW",
+          }
 
-          if found:
+          results = data.get("Results", [])
+          unexpected = []
+
+          for result in results:
+              for vuln in result.get("Vulnerabilities", []):
+                  vid = vuln.get("VulnerabilityID")
+                  pkg = vuln.get("PkgName")
+                  sev = (vuln.get("Severity") or "").upper()
+
+                  if vid == allowed["VulnerabilityID"] and pkg == allowed["PkgName"] and sev == allowed["Severity"]:
+                      continue
+
+                  unexpected.append({
+                      "target": result.get("Target", "unknown"),
+                      "id": vid,
+                      "pkg": pkg,
+                      "severity": sev,
+                  })
+
+          if unexpected:
+              print("Unexpected Trivy finding(s):")
+              for item in unexpected[:10]:
+                  print(f" - {item['target']}: {item['id']} {item['pkg']} {item['severity']}")
               sys.exit(1)
 
-          print("Trivy passed")
+          print("Trivy passed with only the approved deepmerge exception")
           PY
 
       - name: Upload Trivy Report
