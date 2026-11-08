@@ -29,7 +29,7 @@ Content-Type: application/json
     "lastName": "Doe",
     "kycStatus": "pending"
   },
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  "token": "returned-by-login"
 }
 ```
 
@@ -106,7 +106,7 @@ Content-Type: application/json
   "amount": 50000,
   "type": "TRANSFER",
   "description": "Payment for services",
-  "idempotencyKey": "unique-key-12345"
+  "idempotencyKey": "example"
 }
 ```
 
