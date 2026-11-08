@@ -1,14 +1,8 @@
+
 name: SCA - Software Composition Analysis
 
 on:
   workflow_call:
-    outputs:
-      trivy_result:
-        description: Result of the Trivy dependency scan
-        value: ${{ jobs.trivy-sca.result }}
-      pnpm_check_result:
-        description: Result of the pnpm dependency check job
-        value: ${{ jobs.pnpm-audit.result }}
 
   workflow_dispatch:
 
