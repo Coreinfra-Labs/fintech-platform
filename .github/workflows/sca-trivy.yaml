@@ -50,6 +50,7 @@ jobs:
 
       - name: Run Trivy Scan
         id: trivy_scan
+        continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
@@ -59,7 +60,43 @@ jobs:
           ignore-unfixed: true
           format: json
           output: trivy-results.json
-          exit-code: '1'
+          exit-code: '0'
+
+      - name: Evaluate Trivy result
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          if [ ! -f trivy-results.json ]; then
+            echo "No Trivy report found"
+            exit 1
+          fi
+
+          python - <<'PY'
+          import json, sys
+
+          p = "trivy-results.json"
+          try:
+              data = json.load(open(p))
+          except Exception:
+              print("Trivy report unreadable")
+              sys.exit(1)
+
+          results = data.get("Results", [])
+          found = False
+          for result in results:
+              vulns = result.get("Vulnerabilities") or []
+              if vulns:
+                  found = True
+                  print(f"Trivy found vulnerability in {result.get('Target', 'unknown target')}")
+                  for v in vulns[:5]:
+                      print(f" - {v.get('VulnerabilityID')} ({v.get('Severity')})")
+
+          if found:
+              sys.exit(1)
+
+          print("Trivy passed")
+          PY
 
       - name: Upload Trivy Report
         if: always()
