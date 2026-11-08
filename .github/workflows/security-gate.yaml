@@ -47,7 +47,7 @@ jobs:
 
   sca-trivy:
     name: Dependency Security Scan
-    uses: ./.github/workflows/sca-trivy.yaml
+    uses: ./.github/workflows/sca-trivy.yml
 
   security-gate:
     name: Security Gate
