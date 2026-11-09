@@ -1,4 +1,4 @@
-name: Release
+name: Release - pipeline
 
 on:
   workflow_dispatch:
@@ -21,10 +21,10 @@ on:
           - web
 
       version:
-        description: Release Version (Example: v1.3.5)
+        description: 'Release Version (Example: v1.3.5)'
         required: true
         type: string
-
+        
 permissions:
   contents: read
   id-token: write

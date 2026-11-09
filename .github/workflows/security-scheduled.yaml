@@ -8,12 +8,13 @@ on:
 
 permissions:
   contents: read
+  security-events: write
 
 jobs:
 
   trivy-sca:
     name: Trivy Dependency Scan
-    uses: ./.github/workflows/security/sca-trivy.yml
+    uses: ./.github/workflows/sca-trivy.yaml
 
   notify-status:
 
