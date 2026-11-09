@@ -21,7 +21,7 @@ on:
           - web
 
       version:
-        description: Release Version (Example: v1.3.5)
+        description: 'Release Version (Example: v1.3.5)'
         required: true
         type: string
         
