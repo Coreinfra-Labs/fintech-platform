@@ -19,11 +19,8 @@ concurrency:
 
 env:
   AWS_REGION: us-east-1
+  ECR_REPOSITORY_PREFIX: fintech-platform
 
-  SOURCE_REPOSITORY: YOUR_ORG/YOUR-SOURCE-REPO
-  GITOPS_REPOSITORY: YOUR_ORG/YOUR-GITOPS-REPO
-
-  ARGOCD_SERVER: YOUR_ARGOCD_SERVER
   ARGOCD_APP_PREFIX: staging
 
 jobs:
@@ -36,6 +33,12 @@ jobs:
 
     environment:
       name: staging
+
+    env:
+      SOURCE_REPOSITORY: ${{ github.repository }}
+      GITOPS_REPOSITORY: ${{ vars.GITOPS_REPOSITORY }}
+      GITOPS_REPOSITORY_NAME: ${{ vars.GITOPS_REPOSITORY_NAME }}
+      ARGOCD_SERVER: ${{ vars.ARGOCD_SERVER }}
 
     steps:
 
@@ -58,14 +61,14 @@ jobs:
           fi
 
           RELEASE_WORKFLOW_ID=$(gh api \
-            "repos/$GITHUB_REPOSITORY/actions/workflows/release.yml" \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/release-pipeline.yaml" \
             --jq '.id')
 
           RELEASE_RUN=$(gh api \
             "repos/$GITHUB_REPOSITORY/actions/runs/$RELEASE_RUN_ID")
 
           if [[ "$(jq -r '.workflow_id' <<< "$RELEASE_RUN")" != "$RELEASE_WORKFLOW_ID" ]]; then
-            echo "::error::Run $RELEASE_RUN_ID is not a run of release.yml."
+            echo "::error::Run $RELEASE_RUN_ID is not a run of release-pipeline.yaml."
             exit 1
           fi
 
@@ -106,7 +109,7 @@ jobs:
           owner: ${{ github.repository_owner }}
           repositories: |
             ${{ github.event.repository.name }}
-            YOUR-GITOPS-REPO
+            ${{ vars.GITOPS_REPOSITORY_NAME }}
           permission-contents: write
           permission-actions: read
 
@@ -178,6 +181,7 @@ jobs:
           done
 
           echo "SERVICE=$SERVICE" >> "$GITHUB_ENV"
+          echo "ECR_REPOSITORY=${ECR_REPOSITORY_PREFIX}/${SERVICE}" >> "$GITHUB_ENV"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_ENV"
           echo "DIGEST=$DIGEST" >> "$GITHUB_ENV"
@@ -291,7 +295,7 @@ jobs:
           set -euo pipefail
 
           aws ecr describe-repositories \
-            --repository-names "$SERVICE" \
+            --repository-names "$ECR_REPOSITORY" \
             --region "$AWS_REGION" \
             > /dev/null
 
@@ -309,7 +313,7 @@ jobs:
           set -euo pipefail
 
           MUTABILITY=$(aws ecr describe-repositories \
-            --repository-names "$SERVICE" \
+            --repository-names "$ECR_REPOSITORY" \
             --region "$AWS_REGION" \
             --query 'repositories[0].imageTagMutability' \
             --output text)
@@ -334,7 +338,7 @@ jobs:
           set -euo pipefail
 
           VERIFIED_DIGEST=$(aws ecr describe-images \
-            --repository-name "$SERVICE" \
+            --repository-name "$ECR_REPOSITORY" \
             --image-ids imageDigest="$DIGEST" \
             --region "$AWS_REGION" \
             --query 'imageDetails[0].imageDigest' \
@@ -361,7 +365,7 @@ jobs:
           set -euo pipefail
 
           TAG_DIGEST=$(aws ecr describe-images \
-            --repository-name "$SERVICE" \
+            --repository-name "$ECR_REPOSITORY" \
             --image-ids imageTag="$IMAGE_TAG" \
             --region "$AWS_REGION" \
             --query 'imageDetails[0].imageDigest' \
@@ -375,8 +379,8 @@ jobs:
           fi
 
           echo "Release tag verified:"
-          echo "$SERVICE:$IMAGE_TAG"
-          echo "$SERVICE@$DIGEST"
+          echo "$ECR_REPOSITORY:$IMAGE_TAG"
+          echo "$ECR_REPOSITORY@$DIGEST"
 
       #################################################
       # 12. Checkout GitOps Repository
@@ -410,7 +414,7 @@ jobs:
           digest = os.environ["DIGEST"]
 
           file = Path(
-              f"gitops/environments/staging/{service}/values.yaml"
+              f"gitops/k8s/staging/{service}/values.yaml"
           )
 
           if not file.exists():
@@ -464,7 +468,7 @@ jobs:
 
           set -euo pipefail
 
-          FILE="environments/staging/${SERVICE}/values.yaml"
+          FILE="k8s/staging/${SERVICE}/values.yaml"
 
           echo "=============================================="
           echo "GITOPS DIFF"
@@ -495,7 +499,7 @@ jobs:
             "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add \
-            "environments/staging/${SERVICE}/values.yaml"
+            "k8s/staging/${SERVICE}/values.yaml"
 
           if git diff --cached --quiet; then
             echo "ERROR: Nothing to commit."

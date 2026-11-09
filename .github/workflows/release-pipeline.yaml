@@ -36,6 +36,7 @@ concurrency:
 env:
   AWS_REGION: us-east-1
   ECR_REGISTRY: "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com"
+  ECR_REPOSITORY_PREFIX: fintech-platform
 
 jobs:
 
@@ -144,6 +145,7 @@ jobs:
           echo "Service validated: $SERVICE"
           echo "Dockerfile: $DOCKERFILE"
           echo "DOCKERFILE=$DOCKERFILE" >> "$GITHUB_ENV"
+          echo "ECR_REPOSITORY=${ECR_REPOSITORY_PREFIX}/${SERVICE}" >> "$GITHUB_ENV"
 
       # ============================================================
       # 5. RELEASE METADATA
@@ -161,8 +163,8 @@ jobs:
           COMMIT="$(git rev-parse HEAD)"
           SHORT_COMMIT="$(git rev-parse --short=7 HEAD)"
 
-          IMAGE_TAG="${VERSION}-${SHORT_COMMIT}"
           RELEASE_ID="${SERVICE}-${VERSION}-${SHORT_COMMIT}"
+          IMAGE_TAG="$RELEASE_ID"
 
           echo "service=$SERVICE" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -233,7 +235,7 @@ jobs:
           set -euo pipefail
 
           aws ecr describe-repositories \
-            --repository-names "$SERVICE" \
+            --repository-names "$ECR_REPOSITORY" \
             --region "$AWS_REGION" \
             > /dev/null
 
@@ -249,7 +251,7 @@ jobs:
           set -euo pipefail
 
           MUTABILITY=$(aws ecr describe-repositories \
-            --repository-names "$SERVICE" \
+            --repository-names "$ECR_REPOSITORY" \
             --region "$AWS_REGION" \
             --query 'repositories[0].imageTagMutability' \
             --output text)
@@ -273,13 +275,13 @@ jobs:
           set -euo pipefail
 
           if aws ecr describe-images \
-            --repository-name "$SERVICE" \
+            --repository-name "$ECR_REPOSITORY" \
             --image-ids imageTag="$IMAGE_TAG" \
             --region "$AWS_REGION" \
             > /dev/null 2>&1; then
 
             echo "ERROR: Image tag already exists:"
-            echo "$SERVICE:$IMAGE_TAG"
+            echo "$ECR_REPOSITORY:$IMAGE_TAG"
             echo ""
             echo "Immutable ECR tags prevent overwriting an existing release."
             exit 1
@@ -303,7 +305,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          IMAGE_URI="$ECR_REGISTRY/$SERVICE:$IMAGE_TAG"
+          IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
           echo "Building Docker image:"
           echo "$IMAGE_URI"
@@ -322,7 +324,7 @@ jobs:
       - name: Scan Docker Image
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.ECR_REGISTRY }}/${{ env.SERVICE }}:${{ env.IMAGE_TAG }}
+          image-ref: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
           format: json
           output: trivy-image-results.json
           severity: CRITICAL,HIGH,MEDIUM,LOW
@@ -623,7 +625,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          IMAGE_URI="$ECR_REGISTRY/$SERVICE:$IMAGE_TAG"
+          IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
           echo "Pushing Docker image:"
           echo "$IMAGE_URI"
@@ -643,7 +645,7 @@ jobs:
           set -euo pipefail
 
           DIGEST=$(aws ecr describe-images \
-            --repository-name "$SERVICE" \
+            --repository-name "$ECR_REPOSITORY" \
             --image-ids imageTag="$IMAGE_TAG" \
             --region "$AWS_REGION" \
             --query 'imageDetails[0].imageDigest' \
@@ -681,7 +683,7 @@ jobs:
           set -euo pipefail
 
           VERIFIED_DIGEST=$(aws ecr describe-images \
-            --repository-name "$SERVICE" \
+            --repository-name "$ECR_REPOSITORY" \
             --image-ids imageTag="$IMAGE_TAG" \
             --region "$AWS_REGION" \
             --query 'imageDetails[0].imageDigest' \
@@ -717,8 +719,8 @@ jobs:
             "digest": "${DIGEST}",
             "commit": "${COMMIT}",
             "short_commit": "${SHORT_COMMIT}",
-            "repository": "${ECR_REGISTRY}/${SERVICE}",
-            "image": "${ECR_REGISTRY}/${SERVICE}:${IMAGE_TAG}",
+            "repository": "${ECR_REGISTRY}/${ECR_REPOSITORY}",
+            "image": "${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}",
             "environment": "pending",
             "created_at": "$(date -u +%FT%TZ)",
             "release_workflow": "${GITHUB_WORKFLOW}",
@@ -786,10 +788,10 @@ jobs:
           echo "$RELEASE_ID"
           echo ""
           echo "ECR Image:"
-          echo "$ECR_REGISTRY/$SERVICE:$IMAGE_TAG"
+          echo "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
           echo ""
           echo "Deployable Image:"
-          echo "$ECR_REGISTRY/$SERVICE@$DIGEST"
+          echo "$ECR_REGISTRY/$ECR_REPOSITORY@$DIGEST"
           echo ""
           echo "=============================================="
           echo "NEXT:"
