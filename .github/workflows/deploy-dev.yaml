@@ -22,6 +22,7 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
+  ECR_REPOSITORY_PREFIX: fintech-platform
   EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
 
 jobs:
@@ -42,7 +43,7 @@ jobs:
           set -euo pipefail
 
           RELEASE_WORKFLOW_ID=$(gh api \
-            "repos/$GITHUB_REPOSITORY/actions/workflows/release.yml" \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/release-pipeline.yaml" \
             --jq '.id')
 
           RUNS=$(gh api \
@@ -130,7 +131,7 @@ jobs:
           set -euo pipefail
 
           RELEASE_WORKFLOW_ID=$(gh api \
-            "repos/$GITHUB_REPOSITORY/actions/workflows/release.yml" \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/release-pipeline.yaml" \
             --jq '.id')
 
           IFS=',' read -r -a REQUESTED_RUN_IDS <<< "$RELEASE_RUN_IDS"
@@ -162,7 +163,7 @@ jobs:
             RUN=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID")
 
             if [[ "$(jq -r '.workflow_id' <<< "$RUN")" != "$RELEASE_WORKFLOW_ID" ]]; then
-              echo "ERROR: Run $RUN_ID is not a run of release.yml."
+              echo "ERROR: Run $RUN_ID is not a run of release-pipeline.yaml."
               exit 1
             fi
 
@@ -336,6 +337,7 @@ jobs:
           fi
 
           echo "SERVICE=$SERVICE" >> "$GITHUB_ENV"
+          echo "ECR_REPOSITORY=${ECR_REPOSITORY_PREFIX}/${SERVICE}" >> "$GITHUB_ENV"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_ENV"
           echo "DIGEST=$DIGEST" >> "$GITHUB_ENV"
@@ -455,7 +457,7 @@ jobs:
           set -euo pipefail
 
           aws ecr describe-repositories \
-            --repository-names "$SERVICE" \
+            --repository-names "$ECR_REPOSITORY" \
             --region "$AWS_REGION" \
             > /dev/null
 
@@ -472,7 +474,7 @@ jobs:
           set -euo pipefail
 
           MUTABILITY=$(aws ecr describe-repositories \
-            --repository-names "$SERVICE" \
+            --repository-names "$ECR_REPOSITORY" \
             --region "$AWS_REGION" \
             --query 'repositories[0].imageTagMutability' \
             --output text)
@@ -494,7 +496,7 @@ jobs:
           set -euo pipefail
 
           VERIFIED_DIGEST=$(aws ecr describe-images \
-            --repository-name "$SERVICE" \
+            --repository-name "$ECR_REPOSITORY" \
             --image-ids imageDigest="$DIGEST" \
             --region "$AWS_REGION" \
             --query 'imageDetails[0].imageDigest' \
@@ -520,7 +522,7 @@ jobs:
           set -euo pipefail
 
           TAG_DIGEST=$(aws ecr describe-images \
-            --repository-name "$SERVICE" \
+            --repository-name "$ECR_REPOSITORY" \
             --image-ids imageTag="$IMAGE_TAG" \
             --region "$AWS_REGION" \
             --query 'imageDetails[0].imageDigest' \
@@ -534,8 +536,8 @@ jobs:
           fi
 
           echo "Build tag verified:"
-          echo "$SERVICE:$IMAGE_TAG"
-          echo "$SERVICE@$DIGEST"
+          echo "$ECR_REPOSITORY:$IMAGE_TAG"
+          echo "$ECR_REPOSITORY@$DIGEST"
 
       #################################################
       # Configure EKS
@@ -576,7 +578,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          IMAGE="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${AWS_REGION}.amazonaws.com/${SERVICE}@${DIGEST}"
+          IMAGE="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}@${DIGEST}"
 
           echo "Deploying:"
           echo "$IMAGE"
@@ -608,7 +610,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          EXPECTED="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${AWS_REGION}.amazonaws.com/${SERVICE}@${DIGEST}"
+          EXPECTED="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}@${DIGEST}"
 
           ACTUAL=$(kubectl get deployment "$SERVICE" \
             --namespace dev \
