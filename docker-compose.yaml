@@ -370,6 +370,17 @@ services:
       timeout: 5s
       retries: 10
 
+  # Tempo tracing backend
+  tempo:
+    image: grafana/tempo:2.5.0
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./monitoring/tempo.yaml:/etc/tempo.yaml:ro
+    ports:
+      - "3200:3200"
+    networks:
+      - fintech-network
+
   # OpenTelemetry Collector
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.85.0
@@ -385,6 +396,7 @@ services:
     depends_on:
       - kafka
       - zookeeper
+      - tempo
 
 volumes:
   postgres_data:

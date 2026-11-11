@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+remote_name="${1:-origin}"
+zero_sha="0000000000000000000000000000000000000000"
+temp_dir="$(mktemp -d)"
+trap 'rm -rf "$temp_dir"' EXIT
+
+require_command() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    printf 'Required pre-push tool not found: %s\n' "$1" >&2
+    exit 1
+  fi
+}
+
+require_command pnpm
+require_command jq
+require_command gitleaks
+require_command trivy
+
+has_push_ref=false
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [[ -n "${local_ref:-}" ]] || continue
+  has_push_ref=true
+
+  if [[ "$local_sha" == "$zero_sha" ]]; then
+    continue
+  fi
+
+  if [[ "$remote_sha" == "$zero_sha" ]]; then
+    base_ref="refs/remotes/$remote_name/develop"
+    if ! git show-ref --verify --quiet "$base_ref"; then
+      base_ref="refs/remotes/$remote_name/main"
+    fi
+    if ! git show-ref --verify --quiet "$base_ref"; then
+      printf 'Cannot find %s or %s. Fetch the remote default branch and retry.\n' \
+        "refs/remotes/$remote_name/develop" "refs/remotes/$remote_name/main" >&2
+      exit 1
+    fi
+    base_sha="$(git merge-base "$local_sha" "$base_ref")"
+  else
+    base_sha="$remote_sha"
+    if ! git cat-file -e "$base_sha^{commit}" 2>/dev/null; then
+      printf 'Remote base %s is not available locally. Fetch %s and retry.\n' \
+        "$base_sha" "$remote_ref" >&2
+      exit 1
+    fi
+  fi
+
+  printf '\nRunning affected Nx CI for %s -> %s\n' "$local_ref" "$remote_ref"
+  CI=true NX_DAEMON=false pnpm exec nx affected \
+    -t lint,test-ci,typecheck,build,e2e \
+    --base="$base_sha" \
+    --head="$local_sha" \
+    --no-cloud \
+    --outputStyle=static
+done
+
+if [[ "$has_push_ref" != true ]]; then
+  echo 'No refs received from git push; nothing to validate.'
+  exit 1
+fi
+
+echo '\nRunning pnpm dependency audit...'
+audit_report="$temp_dir/pnpm-audit.json"
+audit_status=0
+pnpm audit --json >"$audit_report" || audit_status=$?
+if [[ "$audit_status" -ne 0 ]]; then
+  if jq -e '(.advisories // {}) as $advisories |
+    ($advisories | length) == 1 and
+    all($advisories[];
+      .module_name == "deepmerge" and
+      .severity == "low" and
+      .patched_versions == "<0.0.0" and
+      (.findings | length) > 0 and
+      all(.findings[]; .version == "4.3.1")
+    )' "$audit_report" >/dev/null; then
+    echo 'pnpm audit: only the CI-approved unfixable low deepmerge advisory found.'
+  else
+    jq -r '.advisories // .error // .' "$audit_report" >&2
+    exit "$audit_status"
+  fi
+fi
+
+echo '\nRunning Gitleaks...'
+gitleaks git \
+  --redact=100 \
+  --report-format sarif \
+  --report-path "$temp_dir/gitleaks.sarif" \
+  .
+
+echo '\nRunning Trivy filesystem scan...'
+trivy fs \
+  --scanners vuln \
+  --severity CRITICAL,HIGH \
+  --ignore-unfixed \
+  --format json \
+  --output "$temp_dir/trivy-results.json" \
+  .
+python3 - "$temp_dir/trivy-results.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as report_file:
+    report = json.load(report_file)
+
+allowed = {("GHSA-gcqx-w48m-w2h4", "deepmerge", "LOW")}
+unexpected = []
+
+for result in report.get("Results", []):
+    for vulnerability in result.get("Vulnerabilities", []):
+        finding = (
+            vulnerability.get("VulnerabilityID"),
+            vulnerability.get("PkgName"),
+            (vulnerability.get("Severity") or "").upper(),
+        )
+        if finding not in allowed:
+            unexpected.append((result.get("Target", "unknown"), *finding))
+
+if unexpected:
+    print("Unexpected Trivy finding(s):", file=sys.stderr)
+    for target, vulnerability_id, package, severity in unexpected[:10]:
+        print(f" - {target}: {vulnerability_id} {package} {severity}", file=sys.stderr)
+    sys.exit(1)
+
+print("Trivy passed with only approved security exceptions.")
+PY
+
+if [[ -n "${SONAR_TOKEN:-}" || -n "${SONAR_HOST_URL:-}" ]]; then
+  [[ -n "${SONAR_TOKEN:-}" && -n "${SONAR_HOST_URL:-}" ]] || {
+    echo 'Set both SONAR_TOKEN and SONAR_HOST_URL for a local SonarQube scan.' >&2
+    exit 1
+  }
+  require_command sonar-scanner
+  echo '\nRunning local SonarQube scan...'
+  sonar-scanner
+else
+  echo '\nSonarQube is not configured locally; the GitHub Security Gate runs it using OIDC after push.'
+fi
+
+echo '\nPre-push checks passed.'
