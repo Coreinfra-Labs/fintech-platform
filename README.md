@@ -145,6 +145,127 @@ A comprehensive microservices-based fintech platform built with Node.js, React, 
    ```
    The frontend can be run separately with `PORT=3010 REACT_APP_API_URL=http://localhost:3000/api pnpm --dir services/web start`.
 
+## Observability and telemetry standard
+
+This platform follows a single OpenTelemetry contract across all services. The goal is to emit consistent traces, metrics, and JSON logs from every runtime and to route them through the platform telemetry stack.
+
+```mermaid
+flowchart LR
+    Web[web browser / React app] -->|HTTP + browser traces| OTEL[OTel Collector]
+    API[api-gateway] -->|HTTP traces + metrics| OTEL
+    User[user-service] -->|DB + auth spans| OTEL
+    Wallet[wallet-service] -->|DB + wallet metrics| OTEL
+    Tx[transaction-service] -->|DB + Kafka spans| OTEL
+    Pay[payment-service] -->|HTTP to NIBSS + payment metrics| OTEL
+    Fraud[fraud-service] -->|Kafka consumer + fraud checks| OTEL
+    Notify[notification-service] -->|Kafka + email/SMS calls| OTEL
+    Ledger[ledger-service] -->|DB + wallet sync| OTEL
+    DLQ[dlq-processor] -->|DLQ retries| OTEL
+    NIBSS[nibss-mock] -->|bank mock API| OTEL
+    OTEL -->|traces| Tempo[Tempo]
+    OTEL -->|metrics| Prom[Prometheus]
+    OTEL -->|logs| ES[Elasticsearch]
+    Fluent[Fluent Bit] --> ES
+    ES --> Kibana[Kibana]
+    Prom --> Grafana[Grafana]
+```
+
+### Service telemetry contract
+
+Every service is expected to emit the following data types:
+
+- traces: HTTP server/client spans, database spans, Kafka spans, cache spans, and exception events
+- metrics: request counters, duration histograms, queue depth, payment attempts, fraud alerts, notification delivery results
+- logs: structured JSON with trace_id, span_id, service metadata, and request lifecycle details
+
+### Required resource attributes
+
+Each runtime should define the following attributes:
+
+- service.name
+- service.namespace = fintech-platform
+- service.version
+- deployment.environment.name
+- service.instance.id
+- host.name
+
+Environment variables used by services:
+
+```env
+OTEL_SERVICE_NAME=user-service
+OTEL_SERVICE_VERSION=1.0.0
+OTEL_SERVICE_INSTANCE_ID=${HOSTNAME}
+DEPLOYMENT_ENVIRONMENT=development
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+PROMETHEUS_METRICS_PORT=9464
+```
+
+### Expected scrape data by service
+
+| Service | Required traces | Required metrics | Required logs |
+| --- | --- | --- | --- |
+| api-gateway | HTTP ingress, upstream HTTP proxy calls, auth validation | request rate, latency, 4xx/5xx, auth failures | access log, proxy failures |
+| user-service | login/register/profile DB and auth flows | login attempts, auth failures, profile operations | auth and profile actions |
+| wallet-service | wallet lookup/update DB spans | wallet balance reads, wallet creation, balance errors | wallet operations |
+| transaction-service | transaction DB spans and Kafka produce events | transaction attempts, success/failure, latency | transaction lifecycle logs |
+| payment-service | payment DB spans and outbound NIBSS HTTP | payment attempts, payout success/failure | transfer and validation failures |
+| fraud-service | Kafka consumer spans and fraud rule evaluations | fraud checks, high-risk alerts, blocked events | fraud decisions and alerts |
+| notification-service | Kafka consumer spans and email/SMS outgoing calls | message processed, delivery failure counts | notification dispatch and errors |
+| ledger-service | ledger DB writes and wallet update calls | ledger postings, balance sync failures | ledger posting log events |
+| dlq-processor | Kafka consumption and retry span flow | dead-letter reprocessing counts | retry and dead-letter errors |
+| nibss-mock | mock bank HTTP endpoints and validation requests | validation attempts, response latency | mock bank interactions |
+| web | browser page loads, fetch calls, user actions | frontend request latency, page load timing | browser errors and API failures |
+
+### Metrics conventions
+
+Services should emit:
+
+- counters for cumulative total events
+- histograms for durations and latency distributions
+- gauges for current resource levels
+- up-down counters for queues or concurrency-sensitive values
+
+Avoid high-cardinality labels such as user IDs, emails, request IDs, full URLs, raw tokens, or account numbers.
+
+### EFK stack
+
+The log pipeline is intentionally single-path and avoids duplicate ingestion:
+
+```mermaid
+flowchart LR
+    App[Node services + React web] -->|stdout/stderr JSON logs| Fluent[Fluent Bit]
+    Fluent -->|TLS + structured parsing| ES[Elasticsearch]
+    ES --> Kibana[Kibana]
+```
+
+- services write structured JSON logs to stdout/stderr
+- Fluent Bit tails container logs and enriches them with pod metadata
+- Elasticsearch stores logs with retention and index lifecycle settings
+- Kibana provides searchable trace correlation and operational dashboards
+
+Important: do not forward the same application logs directly through both Fluent Bit and OTLP unless deduplication is explicitly configured.
+
+### Trace to log and log to trace correlation
+
+Every structured log should contain:
+
+- timestamp
+- level
+- message
+- service.name
+- service.version
+- deployment.environment.name
+- service.instance.id
+- trace_id
+- span_id
+- request_id
+- http.request.method
+- http.response.status_code
+- error.type
+- error.message
+
+This allows engineers to jump from a trace in Tempo to the matching logs in Kibana and back again.
+
 ## API Endpoints
 
 ### Authentication

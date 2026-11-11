@@ -1,66 +1,6 @@
 
 'use strict';
 
-const { NodeSDK } = require('@opentelemetry/sdk-node');
+const { initTelemetry } = require('fintech-shared-libs');
 
-const {
-  getNodeAutoInstrumentations,
-} = require('@opentelemetry/auto-instrumentations-node');
-
-const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-grpc');
-
-const { PrometheusExporter } = require('@opentelemetry/exporter-prometheus');
-
-const { resourceFromAttributes } = require('@opentelemetry/resources');
-
-const api = require('@opentelemetry/api');
-
-const serviceName = process.env.OTEL_SERVICE_NAME || 'api-gateway';
-
-// Trace exporter
-const traceExporter = new OTLPTraceExporter({
-  url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://otel-collector:4317',
-});
-
-// Prometheus exporter
-const prometheusPort = Number(process.env.PROMETHEUS_METRICS_PORT || 9464);
-
-const prometheusExporter = new PrometheusExporter(
-  {
-    startServer: true,
-    host: '0.0.0.0',
-    port: prometheusPort,
-  },
-  () => {
-    console.log(`Prometheus metrics server started on port ${prometheusPort}`);
-  }
-);
-
-// OpenTelemetry SDK
-const sdk = new NodeSDK({
-  resource: resourceFromAttributes({
-    'service.name': serviceName,
-    'service.namespace': 'fintech-platform',
-    'deployment.environment.name': process.env.NODE_ENV || 'development',
-  }),
-
-  traceExporter,
-  metricReaders: [prometheusExporter],
-
-  instrumentations: [getNodeAutoInstrumentations()],
-});
-
-// Start SDK
-try {
-  sdk.start();
-  console.log(`OpenTelemetry SDK started for ${serviceName}`);
-} catch (err) {
-  console.error('Error starting OpenTelemetry SDK:', err);
-  throw err;
-}
-
-module.exports = {
-  api,
-  prometheusExporter,
-  shutdown: () => sdk.shutdown(),
-};
+module.exports = initTelemetry({ serviceName: 'api-gateway' });

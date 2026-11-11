@@ -1,5 +1,6 @@
 // Utilities
 const { createLogger, getTraceFields } = require('./utils/logger');
+const { initTelemetry, getServiceName, getResourceAttributes, api } = require('./utils/telemetry');
 
 // Middleware
 const { errorHandler } = require('./middleware/errorHandler');
@@ -23,6 +24,10 @@ module.exports = {
   // Utils
   createLogger,
   getTraceFields,
+  initTelemetry,
+  getServiceName,
+  getResourceAttributes,
+  api,
   
   // Middleware
   errorHandler,
